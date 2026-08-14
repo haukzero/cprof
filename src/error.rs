@@ -35,12 +35,6 @@ pub enum AppError {
     #[error("No home directory found")]
     NoHomeDir,
 
-    #[error("settings.json exists but is not a symlink managed by cprof")]
-    NotASymlink,
-
-    #[error("settings.json symlink points to an external path: {0}")]
-    ExternalSymlink(String),
-
     #[error("{0}")]
     Other(String),
 }

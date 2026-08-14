@@ -4,6 +4,20 @@ use std::path::{Path, PathBuf};
 use crate::config;
 use crate::error::{AppError, Result};
 
+/// The status of settings.json — used by commands that need to distinguish
+/// *why* there is no active profile (e.g. `which`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsStatus {
+    /// settings.json is a symlink to a managed profile
+    Active(String),
+    /// settings.json doesn't exist
+    NoFile,
+    /// settings.json exists but is a regular file, not a cprof symlink
+    NotManaged,
+    /// settings.json is a symlink pointing outside the profiles directory
+    ExternalSymlink(String),
+}
+
 /// A profile entry: name and whether it's active
 #[derive(Debug, Clone)]
 pub struct ProfileInfo {
@@ -39,14 +53,8 @@ pub fn list_profiles() -> Result<Vec<ProfileInfo>> {
     Ok(profiles)
 }
 
-/// Get the name of the currently active profile
-///
-/// Returns:
-/// - `Ok(Some(name))` if settings.json is a symlink to a managed profile
-/// - `Ok(None)` if settings.json doesn't exist
-/// - `Err(NotASymlink)` if settings.json is a regular file
-/// - `Err(ExternalSymlink)` if settings.json is a symlink pointing outside the profiles dir
-pub fn get_active_name() -> Result<Option<String>> {
+/// Get the full status of settings.json
+pub fn get_settings_status() -> Result<SettingsStatus> {
     let link = config::settings_link()?;
 
     // Check if file exists
@@ -54,21 +62,22 @@ pub fn get_active_name() -> Result<Option<String>> {
         // Check if the symlink exists but points to a missing target
         if fs::symlink_metadata(&link).is_ok() {
             // Symlink exists but target is missing - could be broken symlink
-            // Try to read the target anyway
             if let Ok(target) = fs::read_link(&link) {
                 let profiles_dir = config::profiles_dir()?;
                 if !target.starts_with(&profiles_dir) {
-                    return Err(AppError::ExternalSymlink(target.display().to_string()));
+                    return Ok(SettingsStatus::ExternalSymlink(
+                        target.display().to_string(),
+                    ));
                 }
             }
         }
-        return Ok(None);
+        return Ok(SettingsStatus::NoFile);
     }
 
     // Check if it's a symlink
     let metadata = fs::symlink_metadata(&link)?;
     if !metadata.file_type().is_symlink() {
-        return Err(AppError::NotASymlink);
+        return Ok(SettingsStatus::NotManaged);
     }
 
     // Read the symlink target
@@ -79,11 +88,25 @@ pub fn get_active_name() -> Result<Option<String>> {
     if let Ok(rel) = target.strip_prefix(&profiles_dir)
         && let Some(name) = rel.iter().next()
     {
-        return Ok(Some(name.to_string_lossy().to_string()));
+        return Ok(SettingsStatus::Active(name.to_string_lossy().to_string()));
     }
 
     // Symlink points somewhere else
-    Err(AppError::ExternalSymlink(target.display().to_string()))
+    Ok(SettingsStatus::ExternalSymlink(
+        target.display().to_string(),
+    ))
+}
+
+/// Get the name of the currently active profile
+///
+/// Returns:
+/// - `Ok(Some(name))` if settings.json is a symlink to a managed profile
+/// - `Ok(None)` otherwise (no file, regular file, external symlink)
+pub fn get_active_name() -> Result<Option<String>> {
+    match get_settings_status()? {
+        SettingsStatus::Active(name) => Ok(Some(name)),
+        _ => Ok(None),
+    }
 }
 
 /// Create a new profile with the given name and settings content

@@ -2,7 +2,6 @@ use std::fs;
 use std::path::PathBuf;
 
 use cprof::config;
-use cprof::error::AppError;
 use cprof::profile;
 use serial_test::serial;
 
@@ -179,13 +178,12 @@ fn test_error_when_regular_file() {
     let _ = fs::remove_file(&link);
     fs::write(&link, r#"{"env":{}}"#).unwrap();
 
-    // Should return NotASymlink error
-    let result = profile::get_active_name();
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        AppError::NotASymlink => {} // Expected
-        other => panic!("Expected NotASymlink, got: {}", other),
-    }
+    // get_active_name returns None, get_settings_status returns NotManaged
+    assert_eq!(profile::get_active_name().unwrap(), None);
+    assert_eq!(
+        profile::get_settings_status().unwrap(),
+        profile::SettingsStatus::NotManaged
+    );
 
     // Restore
     let _ = fs::remove_file(&link);
@@ -207,14 +205,13 @@ fn test_error_when_external_symlink() {
     #[cfg(windows)]
     std::os::windows::fs::symlink_file(&external, &link).unwrap();
 
-    // Should return ExternalSymlink error
-    let result = profile::get_active_name();
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        AppError::ExternalSymlink(path) => {
+    // get_active_name returns None, get_settings_status returns ExternalSymlink
+    assert_eq!(profile::get_active_name().unwrap(), None);
+    match profile::get_settings_status().unwrap() {
+        profile::SettingsStatus::ExternalSymlink(path) => {
             assert!(path.contains("external_cprof_test.json"));
         }
-        other => panic!("Expected ExternalSymlink, got: {}", other),
+        other => panic!("Expected ExternalSymlink, got: {:?}", other),
     }
 
     // Cleanup
