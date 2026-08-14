@@ -5,7 +5,15 @@
 ## 安装
 
 ```bash
+git clone https://github.com/haukzero/cprof.git
+cd cprof
 cargo install --path .
+```
+
+or
+
+```bash
+cargo install --git https://github.com/haukzero/cprof.git
 ```
 
 ## 命令
