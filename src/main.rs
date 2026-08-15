@@ -25,6 +25,7 @@ fn main() {
         Commands::Remove { names } => commands::remove::run(names),
         Commands::Switch { name } => commands::switch::run(name),
         Commands::Clean { force } => commands::clean::run(force),
+        Commands::Fp { name } => commands::fp::run(name),
         Commands::Pack { save } => commands::pack::run(save),
         Commands::Unpack { path } => commands::unpack::run(path),
     };

@@ -58,6 +58,12 @@ pub enum Commands {
         force: bool,
     },
 
+    /// Actual filepath of a profile
+    Fp {
+        /// Profile name (prompts if omitted)
+        name: Option<String>,
+    },
+
     /// Pack profiles into a portable package
     Pack {
         /// Output file path (default: ./cprof.pkg)

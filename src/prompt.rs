@@ -36,6 +36,10 @@ pub fn require_profile(name: &str) -> Result<()> {
     if !profile_dir.exists() {
         return Err(AppError::ProfileNotFound(name.to_string()));
     }
+    let profile_file = profile_dir.join("settings.json");
+    if !profile_file.exists() {
+        return Err(AppError::ProfileNotFound(name.to_string()));
+    }
     Ok(())
 }
 
