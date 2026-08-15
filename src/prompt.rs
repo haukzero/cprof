@@ -17,15 +17,25 @@ pub fn select_profile(name: Option<String>, prompt: &str) -> Result<String> {
                 return Err(AppError::ProfileNotFound("(no profiles exist)".to_string()));
             }
 
-            let profile_names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
+            // Build display labels with an active indicator
+            let labels: Vec<String> = profiles
+                .iter()
+                .map(|p| {
+                    if p.active {
+                        format!("{} (active)", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                })
+                .collect();
 
             let selection = FuzzySelect::new()
                 .with_prompt(prompt)
-                .items(&profile_names)
+                .items(&labels)
                 .interact()
                 .map_err(|e| AppError::Other(e.to_string()))?;
 
-            Ok(profile_names[selection].to_string())
+            Ok(profiles[selection].name.clone())
         }
     }
 }
