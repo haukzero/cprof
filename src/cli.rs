@@ -59,7 +59,7 @@ pub enum Commands {
     },
 
     /// Actual filepath of a profile
-    Fp {
+    Where {
         /// Profile name (prompts if omitted)
         name: Option<String>,
     },
