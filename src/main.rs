@@ -27,7 +27,7 @@ fn main() {
         Commands::Clean { force } => commands::clean::run(force),
         Commands::Where { name } => commands::where_::run(name),
         Commands::Pack { save } => commands::pack::run(save),
-        Commands::Unpack { path } => commands::unpack::run(path),
+        Commands::Unpack { path, force } => commands::unpack::run(path, force),
     };
 
     if let Err(e) = result {

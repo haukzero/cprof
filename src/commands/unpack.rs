@@ -9,7 +9,7 @@ use crate::package;
 use crate::profile;
 use crate::style;
 
-pub fn run(path: Option<String>) -> Result<()> {
+pub fn run(path: Option<String>, force: bool) -> Result<()> {
     let pkg_path = path.unwrap_or_else(|| "cprof.pkg".to_string());
     let pkg = Path::new(&pkg_path);
 
@@ -34,36 +34,40 @@ pub fn run(path: Option<String>) -> Result<()> {
         // Check if profile already exists
         let profile_path = config::profile_settings(&entry.name)?;
         if profile_path.exists() {
+            let is_active = active_name.as_deref() == Some(entry.name.as_str());
+            let label = if is_active {
+                format!("{} (active)", entry.name)
+            } else {
+                entry.name.clone()
+            };
+
             println!(
                 "{}",
-                style::warning(&format!(
-                    "Profile '{}' already exists - conflict!",
-                    entry.name
-                ))
+                style::warning(&format!("Profile '{}' already exists - conflict!", label))
             );
 
-            // Check if we're in an interactive terminal
-            if atty::is(atty::Stream::Stdin) {
-                let overwrite = Confirm::new()
-                    .with_prompt(format!("Overwrite '{}'?", entry.name))
+            // Determine whether to overwrite
+            let overwrite = if force {
+                true
+            } else if !atty::is(atty::Stream::Stdin) {
+                println!("Non-interactive mode: skipping '{}'", label);
+                false
+            } else {
+                Confirm::new()
+                    .with_prompt(format!("Overwrite '{}'?", label))
                     .default(false)
                     .interact()
-                    .map_err(|e| AppError::Other(e.to_string()))?;
+                    .map_err(|e| AppError::Other(e.to_string()))?
+            };
 
-                if !overwrite {
-                    println!("Skipped '{}'", entry.name);
-                    skipped += 1;
-                    continue;
-                }
-            } else {
-                println!("Non-interactive mode: skipping '{}'", entry.name);
+            if !overwrite {
+                println!("Skipped '{}'", label);
                 skipped += 1;
                 continue;
             }
 
-            // Remove existing profile - check if it's active first
-            let was_active = active_name.as_deref() == Some(entry.name.as_str());
-            if was_active {
+            // Remove existing profile - remove symlink if active
+            if is_active {
                 let link = config::settings_link()?;
                 if link.exists() || fs::symlink_metadata(&link).is_ok() {
                     fs::remove_file(&link)?;

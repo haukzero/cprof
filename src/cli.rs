@@ -76,5 +76,9 @@ pub enum Commands {
         /// Package file path (default: ./cprof.pkg)
         #[arg(long)]
         path: Option<String>,
+
+        /// Force overwrite all existing profiles
+        #[arg(short, long)]
+        force: bool,
     },
 }

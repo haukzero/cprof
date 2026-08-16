@@ -30,7 +30,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof clean [-f]` | 清空所有配置 |
 | `cprof where [name]` | 配置文件实际位置 |
 | `cprof pack` | 打包以快速同步到其他机器 |
-| `cprof unpack` | 解包以快速同步其他机器传来的配置 |
+| `cprof unpack [-f]` | 解包以快速同步其他机器传来的配置 |
 
 不带参数会弹交互选择, 支持模糊搜索. 
 

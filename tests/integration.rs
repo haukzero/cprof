@@ -250,7 +250,7 @@ mod pack_tests {
         profile::remove_profile(&name_beta).unwrap();
 
         // Unpack
-        unpack::run(Some(pkg_path.to_string_lossy().to_string())).unwrap();
+        unpack::run(Some(pkg_path.to_string_lossy().to_string()), false).unwrap();
 
         // Verify profiles restored
         let profiles = profile::list_profiles().unwrap();
@@ -278,7 +278,7 @@ mod pack_tests {
             .join(format!("bad_{}.pkg", std::process::id()));
         fs::write(&pkg_path, b"NOTCPKG").unwrap();
 
-        let result = unpack::run(Some(pkg_path.to_string_lossy().to_string()));
+        let result = unpack::run(Some(pkg_path.to_string_lossy().to_string()), false);
         assert!(result.is_err());
 
         let _ = fs::remove_file(&pkg_path);
@@ -305,11 +305,50 @@ mod pack_tests {
         fs::write(&pkg_path, data).unwrap();
 
         // Try to unpack
-        let result = unpack::run(Some(pkg_path.to_string_lossy().to_string()));
+        let result = unpack::run(Some(pkg_path.to_string_lossy().to_string()), false);
         assert!(result.is_err());
 
         // Cleanup
         let _ = profile::remove_profile(&name);
         let _ = fs::remove_file(&pkg_path);
+    }
+
+    #[test]
+    #[serial]
+    fn test_unpack_force_overwrite() {
+        let name = unique_name("force");
+        let original = save_symlink();
+
+        // Create a profile with original content
+        let original_content = r#"{"env": {"KEY": "original"}}"#;
+        profile::create_profile(&name, original_content).unwrap();
+
+        // Pack it
+        let pkg_path = config::profiles_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(format!("force_{}.pkg", std::process::id()));
+        pack::run(Some(pkg_path.to_string_lossy().to_string())).unwrap();
+
+        // Modify the profile with different content
+        let modified_content = r#"{"env": {"KEY": "modified"}}"#;
+        let profile_path = config::profile_settings(&name).unwrap();
+        fs::write(&profile_path, modified_content).unwrap();
+
+        // Verify modified content
+        assert_eq!(fs::read_to_string(&profile_path).unwrap(), modified_content);
+
+        // Unpack with force=true - should overwrite
+        unpack::run(Some(pkg_path.to_string_lossy().to_string()), true).unwrap();
+
+        // Verify content restored from package
+        let restored = profile::read_profile(&name).unwrap();
+        assert_eq!(restored, original_content);
+
+        // Cleanup
+        let _ = profile::remove_profile(&name);
+        let _ = fs::remove_file(&pkg_path);
+        restore_symlink(original);
     }
 }
