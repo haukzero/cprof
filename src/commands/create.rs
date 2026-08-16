@@ -1,3 +1,5 @@
+use std::fs;
+
 use dialoguer::Input;
 
 use crate::config;
@@ -31,14 +33,22 @@ pub fn run(name: Option<String>, editor_name: Option<String>) -> Result<()> {
     });
     let initial_content = serde_json::to_string_pretty(&template)?;
 
-    // Edit content
-    let content = editor::edit_content(&name, &initial_content, editor_name)?;
+    // Create profile with template content
+    profile::create_profile(&name, &initial_content)?;
 
-    // Validate it's valid JSON
-    serde_json::from_str::<serde_json::Value>(&content)?;
+    // Resolve editor and open the actual profile file
+    let editor_cmd = editor::resolve_editor(editor_name)?;
+    if let Err(e) = editor::open_editor(&editor_cmd, &profile_path) {
+        let _ = profile::remove_profile(&name);
+        return Err(e);
+    }
 
-    // Create the profile
-    profile::create_profile(&name, &content)?;
+    // Read back and validate JSON
+    let content = fs::read_to_string(&profile_path)?;
+    if let Err(e) = serde_json::from_str::<serde_json::Value>(&content) {
+        let _ = profile::remove_profile(&name);
+        return Err(AppError::Json(e));
+    }
 
     // If no active profile, switch to this one
     if profile::get_active_name()?.is_none() {

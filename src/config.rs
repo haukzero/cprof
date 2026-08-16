@@ -19,11 +19,3 @@ pub fn profile_settings(name: &str) -> Result<PathBuf> {
     Ok(profiles_dir()?.join(name).join("settings.json"))
 }
 
-/// Ensure the profiles directory exists
-pub fn ensure_profiles_dir() -> Result<PathBuf> {
-    let dir = profiles_dir()?;
-    if !dir.exists() {
-        std::fs::create_dir_all(&dir)?;
-    }
-    Ok(dir)
-}

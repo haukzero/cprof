@@ -13,12 +13,18 @@ pub fn run(name: Option<String>, editor_name: Option<String>) -> Result<()> {
     // Validate profile exists
     prompt::require_profile(&name)?;
 
-    // Read current content
+    // Resolve editor
+    let editor_cmd = editor::resolve_editor(editor_name)?;
+
+    // Get profile path and read current content for change detection
     let profile_path = config::profile_settings(&name)?;
     let current_content = fs::read_to_string(&profile_path)?;
 
-    // Edit content
-    let new_content = editor::edit_content(&name, &current_content, editor_name)?;
+    // Open editor directly on the profile file
+    editor::open_editor(&editor_cmd, &profile_path)?;
+
+    // Read the potentially modified content
+    let new_content = fs::read_to_string(&profile_path)?;
 
     // Check if content changed
     if new_content == current_content {
@@ -28,9 +34,6 @@ pub fn run(name: Option<String>, editor_name: Option<String>) -> Result<()> {
 
     // Validate it's valid JSON
     serde_json::from_str::<serde_json::Value>(&new_content)?;
-
-    // Save the updated content
-    fs::write(&profile_path, &new_content)?;
 
     println!("{} Updated profile '{}'", style::success("Done!"), name);
 
