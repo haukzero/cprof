@@ -57,25 +57,16 @@ pub fn list_profiles() -> Result<Vec<ProfileInfo>> {
 pub fn get_settings_status() -> Result<SettingsStatus> {
     let link = config::settings_link()?;
 
-    // Check if file exists
-    if !link.exists() {
-        // Check if the symlink exists but points to a missing target
-        if fs::symlink_metadata(&link).is_ok() {
-            // Symlink exists but target is missing - could be broken symlink
-            if let Ok(target) = fs::read_link(&link) {
-                let profiles_dir = config::profiles_dir()?;
-                if !target.starts_with(&profiles_dir) {
-                    return Ok(SettingsStatus::ExternalSymlink(
-                        target.display().to_string(),
-                    ));
-                }
-            }
+    // Use symlink_metadata once - handles both missing file and symlink detection
+    let metadata = match fs::symlink_metadata(&link) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(SettingsStatus::NoFile);
         }
-        return Ok(SettingsStatus::NoFile);
-    }
+        Err(e) => return Err(e.into()),
+    };
 
-    // Check if it's a symlink
-    let metadata = fs::symlink_metadata(&link)?;
+    // Not a symlink - regular file
     if !metadata.file_type().is_symlink() {
         return Ok(SettingsStatus::NotManaged);
     }

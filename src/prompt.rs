@@ -42,11 +42,7 @@ pub fn select_profile(name: Option<String>, prompt: &str) -> Result<String> {
 
 /// Validate that a profile exists
 pub fn require_profile(name: &str) -> Result<()> {
-    let profile_dir = config::profiles_dir()?.join(name);
-    if !profile_dir.exists() {
-        return Err(AppError::ProfileNotFound(name.to_string()));
-    }
-    let profile_file = profile_dir.join("settings.json");
+    let profile_file = config::profile_settings(name)?;
     if !profile_file.exists() {
         return Err(AppError::ProfileNotFound(name.to_string()));
     }

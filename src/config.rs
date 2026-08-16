@@ -18,4 +18,3 @@ pub fn settings_link() -> Result<PathBuf> {
 pub fn profile_settings(name: &str) -> Result<PathBuf> {
     Ok(profiles_dir()?.join(name).join("settings.json"))
 }
-

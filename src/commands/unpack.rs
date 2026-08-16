@@ -24,6 +24,9 @@ pub fn run(path: Option<String>) -> Result<()> {
     let data = fs::read(pkg)?;
     let entries = package::decode(&data)?;
 
+    // Get active name once before the loop
+    let active_name = profile::get_active_name()?;
+
     let mut unpacked = 0;
     let mut skipped = 0;
 
@@ -58,8 +61,15 @@ pub fn run(path: Option<String>) -> Result<()> {
                 continue;
             }
 
-            // Remove existing profile first
-            profile::remove_profile(&entry.name)?;
+            // Remove existing profile - check if it's active first
+            let was_active = active_name.as_deref() == Some(entry.name.as_str());
+            if was_active {
+                let link = config::settings_link()?;
+                if link.exists() || fs::symlink_metadata(&link).is_ok() {
+                    fs::remove_file(&link)?;
+                }
+            }
+            fs::remove_dir_all(profile_path.parent().unwrap())?;
         }
 
         // Create the profile
