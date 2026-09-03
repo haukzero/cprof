@@ -6,9 +6,23 @@ pub enum AppError {
     #[error("Profile '{0}' not found")]
     ProfileNotFound(String),
 
-    #[error("No active profile")]
-    #[allow(dead_code)]
-    NoActiveProfile,
+    #[error("Invalid profile name '{0}'")]
+    InvalidProfileName(String),
+
+    #[error("Unknown target '{0}'")]
+    UnknownTarget(String),
+
+    #[error("Unknown resource '{resource}' for target '{target}'")]
+    UnknownResource { target: String, resource: String },
+
+    #[error("Profile '{0}' is incomplete")]
+    IncompleteProfile(String),
+
+    #[error("Active path '{0}' is not managed by cprof; use --force to replace it")]
+    UnmanagedActivePath(String),
+
+    #[error("Invalid resource: {0}")]
+    InvalidResource(String),
 
     #[error("Editor '{0}' not found or failed to launch")]
     EditorNotFound(String),
@@ -27,10 +41,6 @@ pub enum AppError {
 
     #[error("Package checksum mismatch - file may be corrupted or tampered")]
     ChecksumMismatch,
-
-    #[error("Package conflict: profile '{0}' already exists")]
-    #[allow(dead_code)]
-    PackageConflict(String),
 
     #[error("No home directory found")]
     NoHomeDir,

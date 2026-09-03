@@ -1,201 +1,218 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config;
 use crate::error::{AppError, Result};
+use crate::fs_util;
+use crate::targets::{ResourceSpec, TargetSpec};
 
-/// The status of settings.json — used by commands that need to distinguish
-/// *why* there is no active profile (e.g. `which`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SettingsStatus {
-    /// settings.json is a symlink to a managed profile
-    Active(String),
-    /// settings.json doesn't exist
-    NoFile,
-    /// settings.json exists but is a regular file, not a cprof symlink
-    NotManaged,
-    /// settings.json is a symlink pointing outside the profiles directory
-    ExternalSymlink(String),
-}
-
-/// A profile entry: name and whether it's active
 #[derive(Debug, Clone)]
 pub struct ProfileInfo {
     pub name: String,
-    pub active: bool,
+    pub complete: bool,
 }
 
-/// List all profiles, marking the active one
-pub fn list_profiles() -> Result<Vec<ProfileInfo>> {
-    let dir = config::profiles_dir()?;
+#[derive(Debug, Clone)]
+pub struct ProfileResource {
+    pub spec: &'static ResourceSpec,
+    pub content: Vec<u8>,
+}
+
+pub fn validate_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || matches!(name, "." | "..")
+        || name.contains(['/', '\\'])
+        || name.chars().any(char::is_control)
+    {
+        return Err(AppError::InvalidProfileName(name.to_string()));
+    }
+    Ok(())
+}
+
+pub fn exists(target: &TargetSpec, name: &str) -> Result<bool> {
+    validate_name(name)?;
+    Ok(config::profile_dir(target, name)?.is_dir())
+}
+
+pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
+    validate_name(name)?;
+    let dir = config::profile_dir(target, name)?;
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+
+    for spec in target.resources {
+        let path = dir.join(spec.filename);
+        if !path.is_file() {
+            if spec.required {
+                return Ok(false);
+            }
+            continue;
+        }
+        if (spec.validate)(&fs::read(path)?).is_err() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
+    let dir = config::profiles_dir(target)?;
     if !dir.exists() {
         return Ok(Vec::new());
     }
 
-    let active = get_active_name()?;
     let mut profiles = Vec::new();
-
-    for entry in fs::read_dir(&dir)? {
+    for entry in fs::read_dir(dir)? {
         let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            // Only include directories that contain settings.json
-            if entry.path().join("settings.json").exists() {
-                profiles.push(ProfileInfo {
-                    name: name.clone(),
-                    active: active.as_deref() == Some(&name),
-                });
-            }
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if validate_name(&name).is_ok() {
+            profiles.push(ProfileInfo {
+                complete: is_complete(target, &name)?,
+                name,
+            });
         }
     }
-
-    profiles.sort_by(|a, b| a.name.cmp(&b.name));
+    profiles.sort_unstable_by(|left, right| left.name.cmp(&right.name));
     Ok(profiles)
 }
 
-/// Get the full status of settings.json
-pub fn get_settings_status() -> Result<SettingsStatus> {
-    let link = config::settings_link()?;
-
-    // Use symlink_metadata once - handles both missing file and symlink detection
-    let metadata = match fs::symlink_metadata(&link) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(SettingsStatus::NoFile);
-        }
-        Err(e) => return Err(e.into()),
-    };
-
-    // Not a symlink - regular file
-    if !metadata.file_type().is_symlink() {
-        return Ok(SettingsStatus::NotManaged);
-    }
-
-    // Read the symlink target
-    let target = fs::read_link(&link)?;
-
-    // Extract profile name from path: ~/.claude-profiles/<name>/settings.json
-    let profiles_dir = config::profiles_dir()?;
-    if let Ok(rel) = target.strip_prefix(&profiles_dir)
-        && let Some(name) = rel.iter().next()
-    {
-        return Ok(SettingsStatus::Active(name.to_string_lossy().to_string()));
-    }
-
-    // Symlink points somewhere else
-    Ok(SettingsStatus::ExternalSymlink(
-        target.display().to_string(),
-    ))
-}
-
-/// Get the name of the currently active profile
-///
-/// Returns:
-/// - `Ok(Some(name))` if settings.json is a symlink to a managed profile
-/// - `Ok(None)` otherwise (no file, regular file, external symlink)
-pub fn get_active_name() -> Result<Option<String>> {
-    match get_settings_status()? {
-        SettingsStatus::Active(name) => Ok(Some(name)),
-        _ => Ok(None),
-    }
-}
-
-/// Create a new profile with the given name and settings content
-pub fn create_profile(name: &str, content: &str) -> Result<PathBuf> {
-    let profile_dir = config::profiles_dir()?.join(name);
-    if profile_dir.exists() {
+pub fn create(target: &TargetSpec, name: &str) -> Result<()> {
+    validate_name(name)?;
+    let dir = config::profile_dir(target, name)?;
+    if dir.exists() {
         return Err(AppError::ProfileExists(name.to_string()));
     }
 
-    fs::create_dir_all(&profile_dir)?;
-    let settings_path = profile_dir.join("settings.json");
-    fs::write(&settings_path, content)?;
-
-    Ok(settings_path)
-}
-
-/// Remove a profile by name. Returns true if it was the active profile.
-pub fn remove_profile(name: &str) -> Result<bool> {
-    let profile_dir = config::profiles_dir()?.join(name);
-    if !profile_dir.exists() {
-        return Err(AppError::ProfileNotFound(name.to_string()));
-    }
-
-    let was_active = get_active_name()?.as_deref() == Some(name);
-
-    // If active, remove the symlink first
-    if was_active {
-        let link = config::settings_link()?;
-        if link.exists() {
-            fs::remove_file(&link)?;
+    fs::create_dir_all(&dir)?;
+    for spec in target.resources {
+        if let Err(error) = write_resource(&dir.join(spec.filename), spec, &(spec.template)()) {
+            let _ = fs_util::remove_dir_if_exists(&dir);
+            return Err(error);
         }
     }
-
-    fs::remove_dir_all(&profile_dir)?;
-    Ok(was_active)
-}
-
-/// Switch to a profile. Returns true if it was already active.
-pub fn switch_profile(name: &str) -> Result<bool> {
-    let profile_dir = config::profiles_dir()?.join(name);
-    if !profile_dir.exists() {
-        return Err(AppError::ProfileNotFound(name.to_string()));
-    }
-
-    let current = get_active_name()?;
-    if current.as_deref() == Some(name) {
-        return Ok(true); // Already active
-    }
-
-    let link = config::settings_link()?;
-    let target = profile_dir.join("settings.json");
-
-    // Remove existing symlink if present
-    if link.exists() || fs::symlink_metadata(&link).is_ok() {
-        fs::remove_file(&link)?;
-    }
-
-    // Ensure parent directory exists
-    if let Some(parent) = link.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    // Create symlink (cross-platform)
-    create_symlink(&target, &link)?;
-
-    Ok(false)
-}
-
-/// Create a symlink, cross-platform
-#[cfg(unix)]
-fn create_symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(target, link)?;
     Ok(())
 }
 
-#[cfg(windows)]
-fn create_symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_file(target, link)?;
+pub fn delete(target: &TargetSpec, name: &str) -> Result<()> {
+    validate_name(name)?;
+    let dir = config::profile_dir(target, name)?;
+    if !dir.is_dir() {
+        return Err(AppError::ProfileNotFound(name.to_string()));
+    }
+    fs::remove_dir_all(dir)?;
     Ok(())
 }
 
-/// Read the content of a profile's settings.json
-pub fn read_profile(name: &str) -> Result<String> {
-    let path = config::profile_settings(name)?;
-    if !path.exists() {
+pub fn replace(
+    target: &TargetSpec,
+    name: &str,
+    resources: &[ProfileResource],
+    overwrite: bool,
+) -> Result<()> {
+    validate_name(name)?;
+    let destination = config::profile_dir(target, name)?;
+    if destination.exists() && !overwrite {
+        return Err(AppError::ProfileExists(name.to_string()));
+    }
+    validate_resources(target, name, resources)?;
+
+    let staging_dir =
+        config::profiles_dir(target)?.join(format!(".{name}.incoming-{}", std::process::id()));
+    let rollback_dir = staging_dir.with_extension("rollback");
+    fs_util::remove_dir_if_exists(&staging_dir)?;
+    fs_util::remove_dir_if_exists(&rollback_dir)?;
+    fs::create_dir_all(&staging_dir)?;
+
+    if let Err(error) = write_resources(&staging_dir, resources) {
+        let _ = fs::remove_dir_all(&staging_dir);
+        return Err(error);
+    }
+
+    if overwrite {
+        fs::rename(&destination, &rollback_dir)?;
+    }
+    if let Err(error) = fs::rename(&staging_dir, &destination) {
+        if overwrite {
+            let _ = fs::rename(&rollback_dir, &destination);
+        }
+        return Err(error.into());
+    }
+    let _ = fs_util::remove_dir_if_exists(&rollback_dir);
+    Ok(())
+}
+
+pub fn read(target: &'static TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
+    validate_name(name)?;
+    if !exists(target, name)? {
         return Err(AppError::ProfileNotFound(name.to_string()));
     }
-    Ok(fs::read_to_string(&path)?)
+
+    let mut resources = Vec::new();
+    for spec in target.resources {
+        let path = config::profile_resource(target, name, spec)?;
+        if !path.exists() {
+            if spec.required {
+                return Err(AppError::IncompleteProfile(name.to_string()));
+            }
+            continue;
+        }
+        let content = fs::read(path)?;
+        (spec.validate)(&content)?;
+        resources.push(ProfileResource { spec, content });
+    }
+    Ok(resources)
 }
 
-/// Get the default editor
-pub fn default_editor() -> Option<String> {
-    std::env::var("EDITOR")
-        .ok()
-        .or_else(|| std::env::var("VISUAL").ok())
+pub fn resource_path(target: &TargetSpec, name: &str, resource: &ResourceSpec) -> Result<PathBuf> {
+    validate_name(name)?;
+    config::profile_resource(target, name, resource)
 }
 
-/// Check if a command exists in PATH
-pub fn command_exists(cmd: &str) -> bool {
-    which::which(cmd).is_ok()
+pub fn validate_resource_file(path: &Path, resource: &ResourceSpec) -> Result<()> {
+    (resource.validate)(&fs::read(path)?)?;
+    Ok(())
+}
+
+fn write_resources(dir: &Path, resources: &[ProfileResource]) -> Result<()> {
+    for resource in resources {
+        let path = dir.join(resource.spec.filename);
+        fs_util::write_file(&path, &resource.content)?;
+    }
+    Ok(())
+}
+
+fn validate_resources(
+    target: &TargetSpec,
+    name: &str,
+    resources: &[ProfileResource],
+) -> Result<()> {
+    let mut keys = HashSet::new();
+    for resource in resources {
+        let expected = target.resource(resource.spec.key)?;
+        if expected.filename != resource.spec.filename || !keys.insert(resource.spec.key) {
+            return Err(AppError::InvalidResource(format!(
+                "Invalid resource '{}' in profile '{name}'",
+                resource.spec.key
+            )));
+        }
+        (expected.validate)(&resource.content)?;
+    }
+    if target
+        .resources
+        .iter()
+        .any(|spec| spec.required && !keys.contains(spec.key))
+    {
+        return Err(AppError::IncompleteProfile(name.to_string()));
+    }
+    Ok(())
+}
+
+fn write_resource(path: &Path, spec: &ResourceSpec, content: &[u8]) -> Result<()> {
+    (spec.validate)(content)?;
+    fs_util::write_file(path, content)
 }

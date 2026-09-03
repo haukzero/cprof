@@ -1,9 +1,12 @@
+pub mod activation;
 pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod editor;
 pub mod error;
+mod fs_util;
 pub mod package;
 pub mod profile;
 pub mod prompt;
 pub mod style;
+pub mod targets;

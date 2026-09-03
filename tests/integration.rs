@@ -1,354 +1,244 @@
 use std::fs;
 use std::path::PathBuf;
 
+use cprof::activation;
 use cprof::config;
+use cprof::package;
 use cprof::profile;
+use cprof::targets;
 use serial_test::serial;
 
-/// Generate a unique profile name for testing
 fn unique_name(suffix: &str) -> String {
     format!("test_{}_{}", std::process::id(), suffix)
 }
 
-/// Save the current symlink target (if any) and return it
-fn save_symlink() -> Option<PathBuf> {
-    let link = config::settings_link().ok()?;
-    fs::read_link(&link).ok()
+fn claude() -> &'static targets::TargetSpec {
+    targets::get("claude").unwrap()
+}
+fn codex() -> &'static targets::TargetSpec {
+    targets::get("codex").unwrap()
 }
 
-/// Restore the symlink to its original target
-fn restore_symlink(target: Option<PathBuf>) {
-    if let Some(target) = target {
-        let link = config::settings_link().unwrap();
-        // Remove current symlink if it exists
-        let _ = fs::remove_file(&link);
-        // Recreate symlink
-        #[cfg(unix)]
-        let _ = std::os::unix::fs::symlink(&target, &link);
-        #[cfg(windows)]
-        let _ = std::os::windows::fs::symlink_file(&target, &link);
+fn cleanup(target: &'static targets::TargetSpec, name: &str) {
+    let _ = activation::remove_profile_links(target, name);
+    let _ = profile::delete(target, name);
+}
+
+struct LinkBackup {
+    links: Vec<(PathBuf, Option<PathBuf>)>,
+}
+
+impl LinkBackup {
+    fn new(target: &'static targets::TargetSpec) -> Self {
+        let links: Vec<(PathBuf, Option<PathBuf>)> = target
+            .resources
+            .iter()
+            .map(|resource| {
+                let path = config::active_resource(target, resource).unwrap();
+                (path.clone(), fs::read_link(path).ok())
+            })
+            .collect();
+        for (path, _) in links.iter() {
+            let is_symlink = fs::symlink_metadata(path)
+                .map(|metadata| metadata.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_symlink {
+                let _ = fs::remove_file(path);
+            }
+        }
+        Self { links }
+    }
+}
+
+impl Drop for LinkBackup {
+    fn drop(&mut self) {
+        for (path, original) in &self.links {
+            let _ = fs::remove_file(path);
+            if let Some(target) = original {
+                #[cfg(unix)]
+                let _ = std::os::unix::fs::symlink(target, path);
+                #[cfg(windows)]
+                let _ = std::os::windows::fs::symlink_file(target, path);
+            }
+        }
     }
 }
 
 #[test]
 #[serial]
-fn test_profile_lifecycle() {
-    let original = save_symlink();
-    let name = unique_name("lifecycle");
+fn claude_profile_lifecycle() {
+    let target = claude();
+    let _links = LinkBackup::new(target);
+    let name = unique_name("claude_lifecycle");
+    profile::create(target, &name).unwrap();
+    assert!(profile::is_complete(target, &name).unwrap());
+    assert!(
+        config::profile_resource(target, &name, &target.resources[0])
+            .unwrap()
+            .exists()
+    );
+    assert!(activation::active_name(target).unwrap().is_none());
 
-    // Create a profile
-    let content = r#"{"env": {}, "permissions": {"allow": []}}"#;
-    let path = profile::create_profile(&name, content).unwrap();
-    assert!(path.exists());
-    assert_eq!(fs::read_to_string(&path).unwrap(), content);
-
-    // List profiles - find ours
-    let profiles = profile::list_profiles().unwrap();
-    let found = profiles.iter().find(|p| p.name == name);
-    assert!(found.is_some());
-    assert!(!found.unwrap().active);
-
-    // Switch to profile
-    let was_active = profile::switch_profile(&name).unwrap();
-    assert!(!was_active);
-
-    // Verify active
-    let active = profile::get_active_name().unwrap();
-    assert_eq!(active.as_deref(), Some(name.as_str()));
-
-    // Switch again - should return true (already active)
-    let was_active = profile::switch_profile(&name).unwrap();
-    assert!(was_active);
-
-    // Remove profile
-    let was_active = profile::remove_profile(&name).unwrap();
-    assert!(was_active);
-
-    // Verify removed
-    let profiles = profile::list_profiles().unwrap();
-    assert!(!profiles.iter().any(|p| p.name == name));
-
-    // Restore original symlink
-    restore_symlink(original);
-}
-
-#[test]
-fn test_duplicate_profile_name() {
-    let name = unique_name("duplicate");
-
-    let content = r#"{"env": {}}"#;
-    profile::create_profile(&name, content).unwrap();
-
-    // Try to create with same name
-    let result = profile::create_profile(&name, content);
-    assert!(result.is_err());
-
-    // Cleanup
-    let _ = profile::remove_profile(&name);
-}
-
-#[test]
-fn test_nonexistent_profile() {
-    let name = unique_name("ghost_nonexistent");
-
-    // Try to switch to non-existent profile
-    let result = profile::switch_profile(&name);
-    assert!(result.is_err());
-
-    // Try to remove non-existent profile
-    let result = profile::remove_profile(&name);
-    assert!(result.is_err());
-}
-
-#[test]
-#[serial]
-fn test_multiple_profiles() {
-    let original = save_symlink();
-    let name_a = unique_name("multi_a");
-    let name_b = unique_name("multi_b");
-    let name_c = unique_name("multi_c");
-
-    let content = r#"{"env": {}}"#;
-    profile::create_profile(&name_a, content).unwrap();
-    profile::create_profile(&name_b, content).unwrap();
-    profile::create_profile(&name_c, content).unwrap();
-
-    let profiles = profile::list_profiles().unwrap();
-    let our_profiles: Vec<_> = profiles
-        .iter()
-        .filter(|p| {
-            p.name
-                .starts_with(&format!("test_{}_multi", std::process::id()))
-        })
-        .collect();
-    assert_eq!(our_profiles.len(), 3);
-
-    // Switch to b
-    profile::switch_profile(&name_b).unwrap();
-    let active = profile::get_active_name().unwrap();
-    assert_eq!(active.as_deref(), Some(name_b.as_str()));
-
-    // Cleanup
-    let _ = profile::remove_profile(&name_a);
-    let _ = profile::remove_profile(&name_b);
-    let _ = profile::remove_profile(&name_c);
-
-    // Restore original symlink
-    restore_symlink(original);
-}
-
-#[test]
-fn test_read_profile() {
-    let name = unique_name("reader");
-
-    let content = r#"{"env": {"KEY": "value"}}"#;
-    profile::create_profile(&name, content).unwrap();
-
-    let read_content = profile::read_profile(&name).unwrap();
-    assert_eq!(read_content, content);
-
-    // Cleanup
-    let _ = profile::remove_profile(&name);
-}
-
-#[test]
-fn test_read_nonexistent_profile() {
-    let name = unique_name("read_ghost");
-
-    let result = profile::read_profile(&name);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_config_paths() {
-    let profiles = config::profiles_dir().unwrap();
-    assert!(profiles.to_string_lossy().contains(".claude-profiles"));
-
-    let settings = config::settings_link().unwrap();
-    assert!(settings.to_string_lossy().contains("settings.json"));
-}
-
-#[test]
-#[serial]
-fn test_error_when_regular_file() {
-    let original = save_symlink();
-    let link = config::settings_link().unwrap();
-
-    // Replace symlink with a regular file
-    let _ = fs::remove_file(&link);
-    fs::write(&link, r#"{"env":{}}"#).unwrap();
-
-    // get_active_name returns None, get_settings_status returns NotManaged
-    assert_eq!(profile::get_active_name().unwrap(), None);
+    assert!(!activation::switch(target, &name, true).unwrap());
     assert_eq!(
-        profile::get_settings_status().unwrap(),
-        profile::SettingsStatus::NotManaged
+        activation::active_name(target).unwrap().as_deref(),
+        Some(name.as_str())
+    );
+    assert!(activation::switch(target, &name, false).unwrap());
+    activation::remove_profile_links(target, &name).unwrap();
+    profile::delete(target, &name).unwrap();
+    assert!(!profile::exists(target, &name).unwrap());
+}
+
+#[test]
+#[serial]
+fn codex_profile_has_two_resources_and_switches_together() {
+    let target = codex();
+    let _links = LinkBackup::new(target);
+    let name = unique_name("codex");
+    profile::create(target, &name).unwrap();
+    let resources = profile::read(target, &name).unwrap();
+    assert_eq!(resources.len(), 2);
+    assert_eq!(resources[0].spec.key, "config");
+    assert_eq!(resources[1].spec.key, "auth");
+
+    activation::switch(target, &name, true).unwrap();
+    assert_eq!(
+        activation::active_name(target).unwrap().as_deref(),
+        Some(name.as_str())
+    );
+    for resource in target.resources {
+        let link = config::active_resource(target, resource).unwrap();
+        assert!(link.is_symlink());
+        assert!(link.exists());
+    }
+    cleanup(target, &name);
+}
+
+#[test]
+#[serial]
+fn codex_reports_partial_and_mixed_links() {
+    let target = codex();
+    let _links = LinkBackup::new(target);
+    let first = unique_name("first");
+    let second = unique_name("second");
+    profile::create(target, &first).unwrap();
+    profile::create(target, &second).unwrap();
+    activation::switch(target, &first, true).unwrap();
+
+    let auth_link = config::active_resource(target, &target.resources[1]).unwrap();
+    fs::remove_file(&auth_link).unwrap();
+    assert_eq!(
+        activation::status(target).unwrap(),
+        activation::Status::Partial
     );
 
-    // Restore
-    let _ = fs::remove_file(&link);
-    restore_symlink(original);
+    activation::switch(target, &second, true).unwrap();
+    let config_link = config::active_resource(target, &target.resources[0]).unwrap();
+    let auth_link = config::active_resource(target, &target.resources[1]).unwrap();
+    fs::remove_file(&auth_link).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        config::profile_resource(target, &first, &target.resources[1]).unwrap(),
+        &auth_link,
+    )
+    .unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(
+        config::profile_resource(target, &first, &target.resources[1]).unwrap(),
+        &auth_link,
+    )
+    .unwrap();
+    assert!(config_link.exists());
+    assert_eq!(
+        activation::status(target).unwrap(),
+        activation::Status::Mixed
+    );
+
+    cleanup(target, &first);
+    cleanup(target, &second);
 }
 
 #[test]
-#[serial]
-fn test_error_when_external_symlink() {
-    let original = save_symlink();
-    let link = config::settings_link().unwrap();
-
-    // Create symlink to external path
-    let _ = fs::remove_file(&link);
-    let external = std::env::temp_dir().join("external_cprof_test.json");
-    fs::write(&external, r#"{"env":{}}"#).unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&external, &link).unwrap();
-    #[cfg(windows)]
-    std::os::windows::fs::symlink_file(&external, &link).unwrap();
-
-    // get_active_name returns None, get_settings_status returns ExternalSymlink
-    assert_eq!(profile::get_active_name().unwrap(), None);
-    match profile::get_settings_status().unwrap() {
-        profile::SettingsStatus::ExternalSymlink(path) => {
-            assert!(path.contains("external_cprof_test.json"));
-        }
-        other => panic!("Expected ExternalSymlink, got: {:?}", other),
-    }
-
-    // Cleanup
-    let _ = fs::remove_file(&link);
-    let _ = fs::remove_file(&external);
-    restore_symlink(original);
+fn profile_name_validation() {
+    let target = claude();
+    assert!(profile::create(target, "../escape").is_err());
+    assert!(profile::create(target, "").is_err());
 }
 
-mod pack_tests {
-    use super::*;
-    use cprof::commands::{pack, unpack};
+#[test]
+fn package_roundtrip_preserves_resources() {
+    let target = codex();
+    let first = unique_name("package_first");
+    let second = unique_name("package_second");
+    profile::create(target, &first).unwrap();
+    profile::create(target, &second).unwrap();
+    let entries = vec![
+        package::PackageProfile::new(first.clone(), profile::read(target, &first).unwrap()),
+        package::PackageProfile::new(second.clone(), profile::read(target, &second).unwrap()),
+    ];
+    let data = package::encode(&[package::TargetPackage::new("codex", entries)]).unwrap();
+    let decoded = package::decode(&data).unwrap();
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded[0].target, "codex");
+    assert_eq!(decoded[0].profiles.len(), 2);
+    assert_eq!(decoded[0].profiles[0].resources.len(), 2);
+    cleanup(target, &first);
+    cleanup(target, &second);
+}
 
-    #[test]
-    #[serial]
-    fn test_pack_unpack_roundtrip() {
-        let name_alpha = unique_name("pack_alpha");
-        let name_beta = unique_name("pack_beta");
+#[test]
+fn package_detects_corruption() {
+    let target = claude();
+    let name = unique_name("corrupt");
+    profile::create(target, &name).unwrap();
+    let entry = package::PackageProfile::new(name.clone(), profile::read(target, &name).unwrap());
+    let mut data = package::encode(&[package::TargetPackage::new("claude", vec![entry])]).unwrap();
+    let last = data.len() - 1;
+    data[last] ^= 1;
+    assert!(package::decode(&data).is_err());
+    cleanup(target, &name);
+}
 
-        // Create some profiles
-        let content1 = r#"{"env": {"A": "1"}}"#;
-        let content2 = r#"{"env": {"B": "2"}}"#;
-        profile::create_profile(&name_alpha, content1).unwrap();
-        profile::create_profile(&name_beta, content2).unwrap();
+#[test]
+fn package_roundtrip_supports_all_targets() {
+    let claude_target = claude();
+    let codex_target = codex();
+    let claude_name = unique_name("package_claude");
+    let codex_name = unique_name("package_codex");
+    profile::create(claude_target, &claude_name).unwrap();
+    profile::create(codex_target, &codex_name).unwrap();
 
-        // Pack
-        let pkg_path = config::profiles_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(format!("test_{}.pkg", std::process::id()));
-        pack::run(Some(pkg_path.to_string_lossy().to_string())).unwrap();
-        assert!(pkg_path.exists());
+    let package = package::encode(&[
+        package::TargetPackage::new(
+            "claude",
+            vec![package::PackageProfile::new(
+                claude_name.clone(),
+                profile::read(claude_target, &claude_name).unwrap(),
+            )],
+        ),
+        package::TargetPackage::new(
+            "codex",
+            vec![package::PackageProfile::new(
+                codex_name.clone(),
+                profile::read(codex_target, &codex_name).unwrap(),
+            )],
+        ),
+    ])
+    .unwrap();
+    let decoded = package::decode(&package).unwrap();
 
-        // Remove profiles
-        profile::remove_profile(&name_alpha).unwrap();
-        profile::remove_profile(&name_beta).unwrap();
+    assert_eq!(decoded.len(), 2);
+    assert_eq!(decoded[0].target, "claude");
+    assert_eq!(decoded[1].target, "codex");
+    cleanup(claude_target, &claude_name);
+    cleanup(codex_target, &codex_name);
+}
 
-        // Unpack
-        unpack::run(Some(pkg_path.to_string_lossy().to_string()), false).unwrap();
-
-        // Verify profiles restored
-        let profiles = profile::list_profiles().unwrap();
-        assert!(profiles.iter().any(|p| p.name == name_alpha));
-        assert!(profiles.iter().any(|p| p.name == name_beta));
-
-        // Verify content
-        let restored1 = profile::read_profile(&name_alpha).unwrap();
-        assert_eq!(restored1, content1);
-        let restored2 = profile::read_profile(&name_beta).unwrap();
-        assert_eq!(restored2, content2);
-
-        // Cleanup
-        let _ = profile::remove_profile(&name_alpha);
-        let _ = profile::remove_profile(&name_beta);
-        let _ = fs::remove_file(&pkg_path);
-    }
-
-    #[test]
-    fn test_invalid_package_magic() {
-        let pkg_path = config::profiles_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(format!("bad_{}.pkg", std::process::id()));
-        fs::write(&pkg_path, b"NOTCPKG").unwrap();
-
-        let result = unpack::run(Some(pkg_path.to_string_lossy().to_string()), false);
-        assert!(result.is_err());
-
-        let _ = fs::remove_file(&pkg_path);
-    }
-
-    #[test]
-    #[serial]
-    fn test_corrupted_checksum() {
-        let name = unique_name("corrupt");
-
-        // Create a profile and pack it
-        profile::create_profile(&name, r#"{"env": {}}"#).unwrap();
-        let pkg_path = config::profiles_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(format!("corrupt_{}.pkg", std::process::id()));
-        pack::run(Some(pkg_path.to_string_lossy().to_string())).unwrap();
-
-        // Corrupt the last byte
-        let mut data = fs::read(&pkg_path).unwrap();
-        let last = data.len() - 1;
-        data[last] = data[last].wrapping_add(1);
-        fs::write(&pkg_path, data).unwrap();
-
-        // Try to unpack
-        let result = unpack::run(Some(pkg_path.to_string_lossy().to_string()), false);
-        assert!(result.is_err());
-
-        // Cleanup
-        let _ = profile::remove_profile(&name);
-        let _ = fs::remove_file(&pkg_path);
-    }
-
-    #[test]
-    #[serial]
-    fn test_unpack_force_overwrite() {
-        let name = unique_name("force");
-        let original = save_symlink();
-
-        // Create a profile with original content
-        let original_content = r#"{"env": {"KEY": "original"}}"#;
-        profile::create_profile(&name, original_content).unwrap();
-
-        // Pack it
-        let pkg_path = config::profiles_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join(format!("force_{}.pkg", std::process::id()));
-        pack::run(Some(pkg_path.to_string_lossy().to_string())).unwrap();
-
-        // Modify the profile with different content
-        let modified_content = r#"{"env": {"KEY": "modified"}}"#;
-        let profile_path = config::profile_settings(&name).unwrap();
-        fs::write(&profile_path, modified_content).unwrap();
-
-        // Verify modified content
-        assert_eq!(fs::read_to_string(&profile_path).unwrap(), modified_content);
-
-        // Unpack with force=true - should overwrite
-        unpack::run(Some(pkg_path.to_string_lossy().to_string()), true).unwrap();
-
-        // Verify content restored from package
-        let restored = profile::read_profile(&name).unwrap();
-        assert_eq!(restored, original_content);
-
-        // Cleanup
-        let _ = profile::remove_profile(&name);
-        let _ = fs::remove_file(&pkg_path);
-        restore_symlink(original);
-    }
+#[test]
+fn config_paths_are_centralized() {
+    let target = codex();
+    let root = config::profiles_root().unwrap();
+    assert!(root.ends_with(PathBuf::from(".cprof/profiles")));
+    assert!(config::profiles_dir(target).unwrap().ends_with("codex"));
 }

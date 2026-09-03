@@ -1,58 +1,41 @@
-use std::fs;
-
 use dialoguer::Input;
 
-use crate::config;
+use crate::activation::{self, Status};
 use crate::editor;
 use crate::error::{AppError, Result};
 use crate::profile;
 use crate::style;
+use crate::targets::TargetSpec;
 
-pub fn run(name: Option<String>, editor_name: Option<String>) -> Result<()> {
-    // Get the profile name
+pub fn run(
+    target: &'static TargetSpec,
+    name: Option<String>,
+    editor_name: Option<String>,
+) -> Result<()> {
     let name = match name {
-        Some(n) => n,
+        Some(name) => name,
         None => Input::new()
             .with_prompt("Profile name")
             .interact_text()
             .map_err(|e| AppError::Other(e.to_string()))?,
     };
-
-    // Check if profile already exists
-    let profile_path = config::profile_settings(&name)?;
-    if profile_path.exists() {
-        return Err(AppError::ProfileExists(name));
-    }
-
-    // Default template
-    let template = serde_json::json!({
-        "env": {},
-        "permissions": {
-            "allow": []
-        }
-    });
-    let initial_content = serde_json::to_string_pretty(&template)?;
-
-    // Create profile with template content
-    profile::create_profile(&name, &initial_content)?;
-
-    // Resolve editor and open the actual profile file
+    profile::create(target, &name)?;
     let editor_cmd = editor::resolve_editor(editor_name)?;
-    if let Err(e) = editor::open_editor(&editor_cmd, &profile_path) {
-        let _ = profile::remove_profile(&name);
-        return Err(e);
+    let result = (|| {
+        for resource in target.resources {
+            let path = profile::resource_path(target, &name, resource)?;
+            editor::open_editor(&editor_cmd, &path)?;
+            profile::validate_resource_file(&path, resource)?;
+        }
+        Ok::<(), AppError>(())
+    })();
+    if let Err(error) = result {
+        let _ = profile::delete(target, &name);
+        return Err(error);
     }
 
-    // Read back and validate JSON
-    let content = fs::read_to_string(&profile_path)?;
-    if let Err(e) = serde_json::from_str::<serde_json::Value>(&content) {
-        let _ = profile::remove_profile(&name);
-        return Err(AppError::Json(e));
-    }
-
-    // If no active profile, switch to this one
-    if profile::get_active_name()?.is_none() {
-        profile::switch_profile(&name)?;
+    if matches!(activation::status(target)?, Status::NoFiles) {
+        activation::switch(target, &name, false)?;
         println!(
             "{} Created and activated profile '{}'",
             style::success("Done!"),
@@ -61,6 +44,5 @@ pub fn run(name: Option<String>, editor_name: Option<String>) -> Result<()> {
     } else {
         println!("{} Created profile '{}'", style::success("Done!"), name);
     }
-
     Ok(())
 }

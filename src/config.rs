@@ -1,20 +1,36 @@
 use std::path::PathBuf;
 
 use crate::error::{AppError, Result};
+use crate::targets::{ResourceSpec, TargetSpec};
 
-/// Get the profiles directory: ~/.claude-profiles/
-pub fn profiles_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or(AppError::NoHomeDir)?;
-    Ok(home.join(".claude-profiles"))
+pub fn home_dir() -> Result<PathBuf> {
+    dirs::home_dir().ok_or(AppError::NoHomeDir)
 }
 
-/// Get the claude settings symlink path: ~/.claude/settings.json
-pub fn settings_link() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or(AppError::NoHomeDir)?;
-    Ok(home.join(".claude").join("settings.json"))
+pub fn repository_dir() -> Result<PathBuf> {
+    Ok(home_dir()?.join(".cprof"))
 }
 
-/// Get the path to a profile's settings.json
-pub fn profile_settings(name: &str) -> Result<PathBuf> {
-    Ok(profiles_dir()?.join(name).join("settings.json"))
+pub fn profiles_root() -> Result<PathBuf> {
+    Ok(repository_dir()?.join("profiles"))
+}
+
+pub fn profiles_dir(target: &TargetSpec) -> Result<PathBuf> {
+    Ok(profiles_root()?.join(target.id))
+}
+
+pub fn profile_dir(target: &TargetSpec, name: &str) -> Result<PathBuf> {
+    Ok(profiles_dir(target)?.join(name))
+}
+
+pub fn profile_resource(
+    target: &TargetSpec,
+    name: &str,
+    resource: &ResourceSpec,
+) -> Result<PathBuf> {
+    Ok(profile_dir(target, name)?.join(resource.filename))
+}
+
+pub fn active_resource(target: &TargetSpec, resource: &ResourceSpec) -> Result<PathBuf> {
+    Ok(target.active_path(&home_dir()?, resource))
 }

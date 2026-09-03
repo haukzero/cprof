@@ -1,55 +1,53 @@
 use dialoguer::{Confirm, FuzzySelect};
 
-use crate::config;
+use crate::activation;
 use crate::error::{AppError, Result};
 use crate::profile;
+use crate::targets::TargetSpec;
 
-/// Select a profile using fuzzy search
-///
-/// If `name` is Some, returns it directly.
-/// If `name` is None, shows a FuzzySelect for the user to pick.
-pub fn select_profile(name: Option<String>, prompt: &str) -> Result<String> {
+pub fn select_profile(
+    target: &'static TargetSpec,
+    name: Option<String>,
+    prompt: &str,
+) -> Result<String> {
     match name {
-        Some(n) => Ok(n),
+        Some(name) => Ok(name),
         None => {
-            let profiles = profile::list_profiles()?;
+            let profiles = profile::list(target)?;
             if profiles.is_empty() {
                 return Err(AppError::ProfileNotFound("(no profiles exist)".to_string()));
             }
-
-            // Build display labels with an active indicator
+            let active = activation::active_name(target)?;
             let labels: Vec<String> = profiles
                 .iter()
                 .map(|p| {
-                    if p.active {
-                        format!("{} (active)", p.name)
+                    let status = if active.as_deref() == Some(p.name.as_str()) {
+                        " (active)"
+                    } else if !p.complete {
+                        " (incomplete)"
                     } else {
-                        p.name.clone()
-                    }
+                        ""
+                    };
+                    format!("{}{}", p.name, status)
                 })
                 .collect();
-
             let selection = FuzzySelect::new()
                 .with_prompt(prompt)
                 .items(&labels)
                 .interact()
                 .map_err(|e| AppError::Other(e.to_string()))?;
-
             Ok(profiles[selection].name.clone())
         }
     }
 }
 
-/// Validate that a profile exists
-pub fn require_profile(name: &str) -> Result<()> {
-    let profile_file = config::profile_settings(name)?;
-    if !profile_file.exists() {
+pub fn require_profile(target: &TargetSpec, name: &str) -> Result<()> {
+    if !profile::exists(target, name)? {
         return Err(AppError::ProfileNotFound(name.to_string()));
     }
     Ok(())
 }
 
-/// Ask for confirmation with a yes/no prompt
 pub fn confirm(prompt: &str) -> Result<bool> {
     Confirm::new()
         .with_prompt(prompt)

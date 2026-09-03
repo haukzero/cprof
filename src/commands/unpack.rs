@@ -3,86 +3,101 @@ use std::path::Path;
 
 use dialoguer::Confirm;
 
-use crate::config;
 use crate::error::{AppError, Result};
 use crate::package;
 use crate::profile;
 use crate::style;
+use crate::targets::{self, TargetSpec};
 
-pub fn run(path: Option<String>, force: bool) -> Result<()> {
-    let pkg_path = path.unwrap_or_else(|| "cprof.pkg".to_string());
-    let pkg = Path::new(&pkg_path);
-
-    if !pkg.exists() {
+pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Result<()> {
+    let package_path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
+    let package_path = Path::new(&package_path);
+    if !package_path.exists() {
         return Err(AppError::Other(format!(
             "Package file '{}' not found",
-            pkg.display()
+            package_path.display()
         )));
     }
 
-    // Read and decode the package
-    let data = fs::read(pkg)?;
-    let entries = package::decode(&data)?;
+    let packages = package::decode(&fs::read(package_path)?)?;
+    let package = packages
+        .into_iter()
+        .find(|package| package.target == target.id)
+        .ok_or_else(|| {
+            AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
+        })?;
+    unpack_target(target, package.profiles, force).map(|_| ())
+}
 
-    // Get active name once before the loop
-    let active_name = profile::get_active_name()?;
-
+pub fn run_all(path: Option<String>, force: bool) -> Result<()> {
+    let package_path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
+    let package_path = Path::new(&package_path);
+    if !package_path.exists() {
+        return Err(AppError::Other(format!(
+            "Package file '{}' not found",
+            package_path.display()
+        )));
+    }
+    let packages = package::decode(&fs::read(package_path)?)?;
+    let mut targets = 0;
     let mut unpacked = 0;
     let mut skipped = 0;
+    for package in packages {
+        let target = targets::get(&package.target)?;
+        let (written, ignored) = unpack_target(target, package.profiles, force)?;
+        targets += 1;
+        unpacked += written;
+        skipped += ignored;
+    }
+    println!("\nDone: {unpacked} unpacked, {skipped} skipped across {targets} target(s)");
+    Ok(())
+}
 
-    for entry in &entries {
-        // Check if profile already exists
-        let profile_path = config::profile_settings(&entry.name)?;
-        if profile_path.exists() {
-            let is_active = active_name.as_deref() == Some(entry.name.as_str());
-            let label = if is_active {
-                format!("{} (active)", entry.name)
-            } else {
-                entry.name.clone()
-            };
-
+fn unpack_target(
+    target: &'static TargetSpec,
+    profiles: Vec<package::PackageProfile>,
+    force: bool,
+) -> Result<(usize, usize)> {
+    let mut unpacked = 0;
+    let mut skipped = 0;
+    for package_profile in profiles {
+        let exists = profile::exists(target, &package_profile.name)?;
+        if exists {
             println!(
                 "{}",
-                style::warning(&format!("Profile '{}' already exists - conflict!", label))
+                style::warning(&format!(
+                    "Profile '{}' already exists - conflict!",
+                    package_profile.name
+                ))
             );
-
-            // Determine whether to overwrite
-            let overwrite = if force {
-                true
-            } else if !atty::is(atty::Stream::Stdin) {
-                println!("Non-interactive mode: skipping '{}'", label);
-                false
-            } else {
-                Confirm::new()
-                    .with_prompt(format!("Overwrite '{}'?", label))
-                    .default(false)
-                    .interact()
-                    .map_err(|e| AppError::Other(e.to_string()))?
-            };
-
+            let overwrite = force || should_overwrite(&package_profile.name)?;
             if !overwrite {
-                println!("Skipped '{}'", label);
+                println!("Skipped '{}'", package_profile.name);
                 skipped += 1;
                 continue;
             }
-
-            // Remove existing profile - remove symlink if active
-            if is_active {
-                let link = config::settings_link()?;
-                if link.exists() || fs::symlink_metadata(&link).is_ok() {
-                    fs::remove_file(&link)?;
-                }
-            }
-            fs::remove_dir_all(profile_path.parent().unwrap())?;
         }
 
-        // Create the profile
-        profile::create_profile(&entry.name, &entry.content)?;
+        profile::replace(
+            target,
+            &package_profile.name,
+            &package_profile.resources,
+            exists,
+        )?;
+        println!("Unpacked '{}'", package_profile.name);
         unpacked += 1;
-        println!("Unpacked '{}'", entry.name);
     }
+    println!("Unpacked target '{}'", target.id);
+    Ok((unpacked, skipped))
+}
 
-    println!("\nDone: {} unpacked, {} skipped", unpacked, skipped);
-
-    Ok(())
+fn should_overwrite(name: &str) -> Result<bool> {
+    if !atty::is(atty::Stream::Stdin) {
+        return Ok(false);
+    }
+    Confirm::new()
+        .with_prompt(format!("Overwrite '{name}' ?"))
+        .default(false)
+        .interact()
+        .map_err(|error| AppError::Other(error.to_string()))
 }

@@ -1,41 +1,46 @@
 use std::fs;
 
-use crate::config;
 use crate::editor;
-use crate::error::Result;
+use crate::error::{AppError, Result};
+use crate::profile;
 use crate::prompt;
 use crate::style;
+use crate::targets::{ResourceSpec, TargetSpec};
 
-pub fn run(name: Option<String>, editor_name: Option<String>) -> Result<()> {
-    // Get the profile name (with fuzzy select if not provided)
-    let name = prompt::select_profile(name, "Profile to edit (type to search)")?;
-
-    // Validate profile exists
-    prompt::require_profile(&name)?;
-
-    // Resolve editor
+pub fn run(
+    target: &'static TargetSpec,
+    name: Option<String>,
+    filename: Option<String>,
+    editor_name: Option<String>,
+) -> Result<()> {
+    let name = prompt::select_profile(target, name, "Profile to edit (type to search)")?;
+    prompt::require_profile(target, &name)?;
+    let resources: Vec<&'static ResourceSpec> = match filename {
+        Some(filename) => vec![target.resource(&filename)?],
+        None => target.resources.iter().collect(),
+    };
     let editor_cmd = editor::resolve_editor(editor_name)?;
-
-    // Get profile path and read current content for change detection
-    let profile_path = config::profile_settings(&name)?;
-    let current_content = fs::read_to_string(&profile_path)?;
-
-    // Open editor directly on the profile file
-    editor::open_editor(&editor_cmd, &profile_path)?;
-
-    // Read the potentially modified content
-    let new_content = fs::read_to_string(&profile_path)?;
-
-    // Check if content changed
-    if new_content == current_content {
-        println!("No changes made to profile '{}'", name);
-        return Ok(());
+    let mut changed = false;
+    for resource in resources {
+        let path = profile::resource_path(target, &name, resource)?;
+        if !path.exists() {
+            if resource.required {
+                return Err(AppError::IncompleteProfile(name.clone()));
+            }
+            continue;
+        }
+        let before = fs::read(&path)?;
+        editor::open_editor(&editor_cmd, &path)?;
+        let after = fs::read(&path)?;
+        if after != before {
+            profile::validate_resource_file(&path, resource)?;
+            changed = true;
+        }
     }
-
-    // Validate it's valid JSON
-    serde_json::from_str::<serde_json::Value>(&new_content)?;
-
-    println!("{} Updated profile '{}'", style::success("Done!"), name);
-
+    if changed {
+        println!("{} Updated profile '{}'", style::success("Done!"), name);
+    } else {
+        println!("No changes made to profile '{}'", name);
+    }
     Ok(())
 }

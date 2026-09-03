@@ -1,31 +1,24 @@
+use crate::activation::{self, Status};
 use crate::error::Result;
-use crate::profile;
 use crate::style;
+use crate::targets::TargetSpec;
 
-pub fn run() -> Result<()> {
-    match profile::get_settings_status()? {
-        profile::SettingsStatus::Active(name) => println!("{}", name),
-        profile::SettingsStatus::NoFile => {
-            println!(
-                "{}",
-                style::warning("No active profile (settings.json does not exist)")
-            );
-        }
-        profile::SettingsStatus::NotManaged => {
-            println!(
-                "{}",
-                style::warning("settings.json exists but is not managed by cprof")
-            );
-        }
-        profile::SettingsStatus::ExternalSymlink(target) => {
-            println!(
-                "{}",
-                style::warning(&format!(
-                    "settings.json is a symlink to an external path: {}",
-                    target
-                ))
-            );
-        }
+pub fn run(target: &'static TargetSpec) -> Result<()> {
+    match activation::status(target)? {
+        Status::Active(name) => println!("{}", name),
+        Status::NoFiles => println!("{}", style::warning("No active profile")),
+        Status::Partial => println!(
+            "{}",
+            style::warning("Active profile is incomplete or partially linked")
+        ),
+        Status::Mixed => println!(
+            "{}",
+            style::warning("Different resources point to different profiles")
+        ),
+        Status::Unmanaged => println!(
+            "{}",
+            style::warning("Active paths contain unmanaged files or links")
+        ),
     }
     Ok(())
 }
