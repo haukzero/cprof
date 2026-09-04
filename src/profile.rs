@@ -90,7 +90,7 @@ pub fn create(target: &TargetSpec, name: &str) -> Result<()> {
 
     fs::create_dir_all(&dir)?;
     for spec in target.resources {
-        if let Err(error) = write_resource(&dir.join(spec.filename), spec, &(spec.template)()) {
+        if let Err(error) = write_resource(&dir.join(spec.filename), spec, spec.template) {
             let _ = fs_util::remove_dir_if_exists(&dir);
             return Err(error);
         }

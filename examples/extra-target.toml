@@ -1,0 +1,25 @@
+[example]
+id = "eXample"
+
+[[example.resources]]
+key = "resource1"
+filename = "resource1.txt"
+active_path = ".config/example/resource1.txt"
+
+[[example.resources]]
+key = "resource2"
+filename = "resource2.toml"
+active_path = ".config/example/resource2.toml"
+
+
+[[example2.resources]]
+key = "resource1"
+filename = "resource1.txt"
+active_path = ".config/example/resource1.txt"
+template = "\"hello world\"\nThis is a text file example.\n"
+
+[[example2.resources]]
+key = "resource2"
+filename = "resource2.toml"
+active_path = ".config/example/resource2.toml"
+template = "# This is a TOML file example.\n"

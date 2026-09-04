@@ -17,9 +17,10 @@ pub fn run(target: &'static TargetSpec, save: Option<String>) -> Result<()> {
 pub fn run_all(save: Option<String>) -> Result<()> {
     let output_path = save.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     let output = Path::new(&output_path);
-    let packages = targets::all()
+    let packages = targets::all()?
         .iter()
-        .map(|target| collect_target(target))
+        .copied()
+        .map(collect_target)
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .flatten()

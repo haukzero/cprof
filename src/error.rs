@@ -12,6 +12,9 @@ pub enum AppError {
     #[error("Unknown target '{0}'")]
     UnknownTarget(String),
 
+    #[error("Target conflict: {0}")]
+    TargetConflict(String),
+
     #[error("Unknown resource '{resource}' for target '{target}'")]
     UnknownResource { target: String, resource: String },
 

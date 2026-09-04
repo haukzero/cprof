@@ -1,13 +1,8 @@
 use super::{ResourceSpec, TargetSpec};
 use crate::error::{AppError, Result};
 
-fn config_template() -> Vec<u8> {
-    b"# Codex configuration\n".to_vec()
-}
-
-fn auth_template() -> Vec<u8> {
-    b"{}\n".to_vec()
-}
+const CONFIG_TEMPLATE: &[u8] = b"# Codex configuration\n";
+const AUTH_TEMPLATE: &[u8] = b"{}\n";
 
 fn validate_toml(content: &[u8]) -> Result<()> {
     let text = std::str::from_utf8(content)
@@ -29,7 +24,7 @@ const RESOURCES: &[ResourceSpec] = &[
         filename: "config.toml",
         active_path: ".codex/config.toml",
         required: true,
-        template: config_template,
+        template: CONFIG_TEMPLATE,
         validate: validate_toml,
     },
     ResourceSpec {
@@ -37,7 +32,7 @@ const RESOURCES: &[ResourceSpec] = &[
         filename: "auth.json",
         active_path: ".codex/auth.json",
         required: true,
-        template: auth_template,
+        template: AUTH_TEMPLATE,
         validate: validate_json,
     },
 ];

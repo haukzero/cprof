@@ -1,6 +1,6 @@
 # cprof
 
-一个统一管理 Claude Code 和 Codex 配置 profile 的命令行工具。
+一个统一管理 Claude Code 和 Codex 配置 profile 的命令行工具. 
 
 ## 安装
 
@@ -18,7 +18,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 
 ## 命令
 
-目标命令格式为 `cprof <target> <command>`，target 为 `claude` 或 `codex`。
+目标命令格式为 `cprof <target> <command>`, 内置 target 为 `claude` 和 `codex`, 也可以在 `~/.cprof/extra-target.toml` 中添加外部 target. 
 
 | 命令 | 说明 |
 |------|------|
@@ -37,16 +37,32 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof pack [--save path]` | 一次打包所有 target |
 | `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 
-除 `create` 外，省略 profile 名称会进入模糊搜索选择。`--filename` 使用资源逻辑名称：
-Claude 为 `settings`，Codex 为 `config` 或 `auth`。
-省略 target 的 `pack` 和 `unpack` 会一次处理所有 target，默认包文件为 `cprof.pkg`。
+除 `create` 外, 省略 profile 名称会进入模糊搜索选择. `--filename` 使用资源逻辑名称: 
+Claude 为 `settings`, Codex 为 `config` 或 `auth`. 
+省略 target 的 `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`. 
+
+### 外部 target
+
+允许在 `~/.cprof/extra-target.toml` 中配置的定义的额外 target. 配置文件使用顶层表名定义 target, 格式参考 [`examples/extra-target.toml`](examples/extra-target.toml). 命令中的 target 默认使用表名; 声明 `id` 后改用该 id: 
+
+```toml
+[example]
+id = "example-id" # 可选, 默认与表名相同
+
+[[example.resources]]
+filename = "settings.conf"
+active_path = ".config/example/settings.conf"
+# key, template, required 均可省略; key 默认与 filename 相同, template 默认为空文件
+```
+
+外部 target 可直接使用上述全部 subcommand, 资源内容不会进行格式校验. target id 与已有 target, 命令冲突时, cprof 会在启动时报告明确错误. 
 
 ## 存储位置
 
-真实配置文件集中在：
+真实配置文件集中在: 
 
 ```text
 ~/.cprof/profiles/<target>/<profile>/<resource>
 ```
 
-外部程序使用的固定路径由软链接指向当前 profile。
+外部程序使用的固定路径由软链接指向当前 profile. 

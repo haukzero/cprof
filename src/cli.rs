@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -13,6 +13,16 @@ pub struct Cli {
     pub command: RootCommand,
 }
 
+pub fn command_names() -> Vec<String> {
+    let mut names = Cli::command()
+        .get_subcommands()
+        .map(|command| command.get_name().to_string())
+        .collect::<Vec<_>>();
+    // Clap handles `help` as an implicit subcommand and does not expose it above.
+    names.push("help".to_string());
+    names
+}
+
 #[derive(Subcommand)]
 pub enum RootCommand {
     /// Manage Claude Code profiles
@@ -25,10 +35,19 @@ pub enum RootCommand {
     Pack(PackArgs),
     /// Unpack profiles for every target in a package
     Unpack(UnpackArgs),
+    /// Manage a target configured in ~/.cprof/extra-target.toml
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Args)]
 pub struct TargetArgs {
+    #[command(subcommand)]
+    pub command: TargetCommand,
+}
+
+#[derive(Parser)]
+pub struct TargetCli {
     #[command(subcommand)]
     pub command: TargetCommand,
 }
