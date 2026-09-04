@@ -50,6 +50,9 @@ fn parse_target_command(
 }
 
 fn run_target_command(target_id: &str, command: TargetCommand) -> cprof::error::Result<()> {
+    if let TargetCommand::Unpack(args) = command {
+        return commands::unpack::run_by_id(target_id, args.path, args.force);
+    }
     let target = targets::get(target_id)?;
     match command {
         TargetCommand::Dir => commands::dir::run(target),

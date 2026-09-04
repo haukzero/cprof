@@ -37,7 +37,7 @@ const RESOURCES: &[ResourceSpec] = &[
     },
 ];
 
-pub const SPEC: TargetSpec = TargetSpec {
+pub(super) const SPEC: TargetSpec = TargetSpec {
     id: "codex",
     resources: RESOURCES,
 };

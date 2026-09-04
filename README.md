@@ -57,6 +57,8 @@ active_path = ".config/example/settings.conf"
 
 外部 target 可直接使用上述全部 subcommand, 资源内容不会进行格式校验. target id 与已有 target, 命令冲突时, cprof 会在启动时报告明确错误. 
 
+打包外部 target 时会同时记录 `extra-target.toml` 中的 target 定义. 解包时会与本地配置合并; 新的 target 和资源会自动加入, 定义冲突时交互选择保留本地或使用包内定义. 使用 `-f` 可直接采用包内定义.
+
 ## 存储位置
 
 真实配置文件集中在: 

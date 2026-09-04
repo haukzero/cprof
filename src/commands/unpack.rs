@@ -7,44 +7,45 @@ use crate::error::{AppError, Result};
 use crate::package;
 use crate::profile;
 use crate::style;
-use crate::targets::{self, TargetSpec};
+use crate::targets::{self, ExternalTargetConfig, TargetSpec};
 
 pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Result<()> {
-    let package_path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
-    let package_path = Path::new(&package_path);
-    if !package_path.exists() {
-        return Err(AppError::Other(format!(
-            "Package file '{}' not found",
-            package_path.display()
-        )));
-    }
+    run_with_fallback(target.id, Some(target), path, force)
+}
 
-    let packages = package::decode(&fs::read(package_path)?)?;
+pub fn run_by_id(target_id: &str, path: Option<String>, force: bool) -> Result<()> {
+    run_with_fallback(target_id, None, path, force)
+}
+
+fn run_with_fallback(
+    target_id: &str,
+    fallback: Option<&'static TargetSpec>,
+    path: Option<String>,
+    force: bool,
+) -> Result<()> {
+    let packages = read_package(path)?;
     let package = packages
         .into_iter()
-        .find(|package| package.target == target.id)
+        .find(|package| package.target == target_id)
         .ok_or_else(|| {
-            AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
+            AppError::InvalidPackage(format!("Package does not contain target '{target_id}'"))
         })?;
-    unpack_target(target, package.profiles, force).map(|_| ())
+    let target_configs = merge_target_configs(std::slice::from_ref(&package), force)?;
+    let target = resolve_target(&package, &target_configs, fallback)?;
+    let profiles = remap_profiles(target, package.profiles)?;
+    unpack_target(target, profiles, force).map(|_| ())
 }
 
 pub fn run_all(path: Option<String>, force: bool) -> Result<()> {
-    let package_path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
-    let package_path = Path::new(&package_path);
-    if !package_path.exists() {
-        return Err(AppError::Other(format!(
-            "Package file '{}' not found",
-            package_path.display()
-        )));
-    }
-    let packages = package::decode(&fs::read(package_path)?)?;
+    let packages = read_package(path)?;
+    let target_configs = merge_target_configs(&packages, force)?;
     let mut targets = 0;
     let mut unpacked = 0;
     let mut skipped = 0;
     for package in packages {
-        let target = targets::get(&package.target)?;
-        let (written, ignored) = unpack_target(target, package.profiles, force)?;
+        let target = resolve_target(&package, &target_configs, None)?;
+        let profiles = remap_profiles(target, package.profiles)?;
+        let (written, ignored) = unpack_target(target, profiles, force)?;
         targets += 1;
         unpacked += written;
         skipped += ignored;
@@ -91,12 +92,113 @@ fn unpack_target(
     Ok((unpacked, skipped))
 }
 
+fn merge_target_configs(
+    packages: &[package::TargetPackage],
+    force: bool,
+) -> Result<std::collections::BTreeMap<String, ExternalTargetConfig>> {
+    let packaged = packages
+        .iter()
+        .filter_map(|package| package.target_config.clone())
+        .collect::<Vec<_>>();
+    let local = targets::read_external_configs()?;
+    let merged = targets::merge_external_configs(local.clone(), &packaged, |prompt| {
+        should_use_packaged(prompt, force)
+    })?;
+    if merged != local {
+        targets::write_external_configs(&merged)?;
+    }
+    Ok(merged)
+}
+
+fn read_package(path: Option<String>) -> Result<Vec<package::TargetPackage>> {
+    let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
+    let path = Path::new(&path);
+    if !path.exists() {
+        return Err(AppError::Other(format!(
+            "Package file '{}' not found",
+            path.display()
+        )));
+    }
+    package::decode(&fs::read(path)?)
+}
+
+fn effective_target_from_config(
+    package: &package::TargetPackage,
+    configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
+) -> Result<&'static TargetSpec> {
+    let config = targets::find_external_config(configs, &package.target).ok_or_else(|| {
+        AppError::InvalidPackage(format!(
+            "Merged configuration does not contain target '{}'",
+            package.target
+        ))
+    })?;
+    Ok(Box::leak(Box::new(targets::spec_from_external_config(
+        config,
+    )?)))
+}
+
+fn resolve_target(
+    package: &package::TargetPackage,
+    configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
+    fallback: Option<&'static TargetSpec>,
+) -> Result<&'static TargetSpec> {
+    match (package.target_config.is_some(), fallback) {
+        (true, _) => effective_target_from_config(package, configs),
+        (false, Some(target)) => Ok(target),
+        (false, None) => targets::get(&package.target),
+    }
+}
+
+fn remap_profiles(
+    target: &'static TargetSpec,
+    profiles: Vec<package::PackageProfile>,
+) -> Result<Vec<package::PackageProfile>> {
+    profiles
+        .into_iter()
+        .map(|profile| {
+            let mut present = std::collections::HashSet::new();
+            let mut resources = profile
+                .resources
+                .into_iter()
+                .map(|resource| {
+                    let spec = target.resource(resource.spec.key)?;
+                    present.insert(spec.key);
+                    Ok(profile::ProfileResource {
+                        spec,
+                        content: resource.content,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for spec in target.resources {
+                if spec.required && !present.contains(spec.key) {
+                    resources.push(profile::ProfileResource {
+                        spec,
+                        content: spec.template.to_vec(),
+                    });
+                }
+            }
+            Ok(package::PackageProfile::new(profile.name, resources))
+        })
+        .collect()
+}
+
 fn should_overwrite(name: &str) -> Result<bool> {
+    confirm(format!("Overwrite '{name}' ?"))
+}
+
+fn should_use_packaged(prompt: &str, force: bool) -> Result<bool> {
+    if force {
+        return Ok(true);
+    }
+    confirm(prompt)
+}
+
+fn confirm(prompt: impl Into<String>) -> Result<bool> {
     if !atty::is(atty::Stream::Stdin) {
         return Ok(false);
     }
     Confirm::new()
-        .with_prompt(format!("Overwrite '{name}' ?"))
+        .with_prompt(prompt)
         .default(false)
         .interact()
         .map_err(|error| AppError::Other(error.to_string()))

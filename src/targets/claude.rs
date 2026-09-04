@@ -24,7 +24,7 @@ const RESOURCES: &[ResourceSpec] = &[ResourceSpec {
     validate,
 }];
 
-pub const SPEC: TargetSpec = TargetSpec {
+pub(super) const SPEC: TargetSpec = TargetSpec {
     id: "claude",
     resources: RESOURCES,
 };

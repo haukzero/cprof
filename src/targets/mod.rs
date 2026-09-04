@@ -1,15 +1,18 @@
 mod claude;
 mod codex;
+mod external;
 
-use std::collections::{BTreeMap, HashSet};
-use std::fs;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use serde::Deserialize;
-
-use crate::config;
 use crate::error::{AppError, Result};
+
+pub(crate) use external::{
+    ExternalResourceConfig, ExternalTargetConfig, external_config_for, find_external_config,
+    merge_external_configs, read_external_configs, spec_from_external_config,
+    write_external_configs,
+};
 
 pub type Validator = fn(&[u8]) -> Result<()>;
 
@@ -50,6 +53,7 @@ fn external_validate(_: &[u8]) -> Result<()> {
 }
 
 const BUILTIN_TARGETS: &[&TargetSpec] = &[&claude::SPEC, &codex::SPEC];
+
 pub fn get(id: &str) -> Result<&'static TargetSpec> {
     all()?
         .iter()
@@ -69,10 +73,7 @@ pub fn all() -> Result<&'static [&'static TargetSpec]> {
 
 pub fn validate_command_conflicts(command_names: &[String]) -> Result<()> {
     for target in all()? {
-        let is_builtin = BUILTIN_TARGETS
-            .iter()
-            .any(|builtin| builtin.id == target.id);
-        if !is_builtin && command_names.iter().any(|name| name == target.id) {
+        if !is_builtin(target) && command_names.iter().any(|name| name == target.id) {
             return Err(AppError::TargetConflict(format!(
                 "target id '{}' conflicts with the command of the same name",
                 target.id
@@ -84,116 +85,34 @@ pub fn validate_command_conflicts(command_names: &[String]) -> Result<()> {
 
 fn load_from_config() -> Result<Box<[&'static TargetSpec]>> {
     let mut targets = BUILTIN_TARGETS.to_vec();
-    let path = config::repository_dir()?.join("extra-target.toml");
-    if path.exists() {
-        let content = fs::read_to_string(&path)?;
-        let configured =
-            toml::from_str::<BTreeMap<String, ExtraTarget>>(&content).map_err(|error| {
-                AppError::Other(format!("Failed to parse '{}': {error}", path.display()))
-            })?;
-        let mut ids = BUILTIN_TARGETS
-            .iter()
-            .map(|target| target.id)
-            .collect::<HashSet<_>>();
-        for (name, target) in configured {
-            let target = Box::leak(Box::new(target.into_spec(&name)));
-            if !ids.insert(target.id) {
-                return Err(AppError::TargetConflict(format!(
-                    "target id '{}' declared by '{name}' conflicts with an existing target",
-                    target.id
-                )));
-            }
-            targets.push(target);
+    let configured = read_external_configs()?;
+    let mut ids = HashSet::new();
+    for (name, target_config) in configured {
+        let target = Box::leak(Box::new(spec_from_external_config(&target_config)?));
+        if !ids.insert(target.id) {
+            return Err(AppError::TargetConflict(format!(
+                "target id '{}' declared by '{name}' conflicts with an existing target",
+                target.id,
+            )));
         }
+        targets.push(target);
     }
     Ok(targets.into_boxed_slice())
 }
 
-#[derive(Debug, Deserialize)]
-struct ExtraTarget {
-    id: Option<String>,
-    #[serde(default)]
-    resources: Vec<ExtraResource>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ExtraResource {
-    key: Option<String>,
-    filename: String,
-    active_path: String,
-    template: Option<String>,
-    required: Option<bool>,
-}
-
-impl ExtraTarget {
-    fn into_spec(self, name: &str) -> TargetSpec {
-        let id = leak_string(self.id.unwrap_or_else(|| name.to_string()));
-        let resources = self
-            .resources
-            .into_iter()
-            .map(ExtraResource::into_spec)
-            .collect::<Vec<_>>();
-        TargetSpec {
-            id,
-            resources: Box::leak(resources.into_boxed_slice()),
-        }
-    }
-}
-
-impl ExtraResource {
-    fn into_spec(self) -> ResourceSpec {
-        let filename = leak_string(self.filename);
-        let key = leak_string(self.key.unwrap_or_else(|| filename.to_string()));
-        let active_path = leak_string(self.active_path);
-        let template = leak_bytes(self.template.unwrap_or_default().into_bytes());
-        ResourceSpec {
-            key,
-            filename,
-            active_path,
-            required: self.required.unwrap_or(true),
-            template,
-            validate: external_validate,
-        }
-    }
-}
-
-fn leak_string(value: String) -> &'static str {
-    Box::leak(value.into_boxed_str())
-}
-
-fn leak_bytes(value: Vec<u8>) -> &'static [u8] {
-    Box::leak(value.into_boxed_slice())
+pub(crate) fn is_builtin(target: &TargetSpec) -> bool {
+    BUILTIN_TARGETS
+        .iter()
+        .any(|builtin| builtin.id == target.id)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ExtraTarget;
+    use super::is_builtin;
 
     #[test]
-    fn external_defaults_and_templates_are_loaded() {
-        let target: ExtraTarget = toml::from_str(
-            r#"
-                id = "custom-id"
-                [[resources]]
-                filename = "settings.conf"
-                active_path = ".config/example/settings.conf"
-                [[resources]]
-                key = "auth"
-                filename = "auth.data"
-                active_path = ".config/example/auth.data"
-                template = "hello"
-                required = false
-            "#,
-        )
-        .unwrap();
-
-        let target = target.into_spec("custom");
-        assert_eq!(target.id, "custom-id");
-        assert_eq!(target.resources[0].key, "settings.conf");
-        assert!(target.resources[0].required);
-        assert!(target.resources[0].template.is_empty());
-        assert_eq!(target.resources[1].key, "auth");
-        assert!(!target.resources[1].required);
-        assert_eq!(target.resources[1].template, b"hello");
+    fn builtin_targets_are_identified() {
+        assert!(is_builtin(super::get("claude").unwrap()));
+        assert!(is_builtin(super::get("codex").unwrap()));
     }
 }
