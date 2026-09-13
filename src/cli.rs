@@ -101,8 +101,11 @@ pub enum TargetCommand {
         #[arg(long)]
         editor: Option<String>,
     },
-    /// Remove one or more profiles
-    Remove { names: Vec<String> },
+    /// Remove profiles by name or wildcard pattern
+    Remove {
+        #[arg(value_name = "NAME_OR_PATTERN")]
+        names: Vec<String>,
+    },
     /// Switch to a profile
     Switch {
         /// Profile name (prompts if omitted)

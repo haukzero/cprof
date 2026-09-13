@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use indexmap::IndexSet;
+
 use crate::config;
 use crate::error::{AppError, Result};
 use crate::fs_util;
@@ -58,12 +60,24 @@ pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
 }
 
 pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
+    names(target)?
+        .into_iter()
+        .map(|name| {
+            Ok(ProfileInfo {
+                complete: is_complete(target, &name)?,
+                name,
+            })
+        })
+        .collect()
+}
+
+fn names(target: &TargetSpec) -> Result<Vec<String>> {
     let dir = config::profiles_dir(target)?;
     if !dir.exists() {
         return Ok(Vec::new());
     }
 
-    let mut profiles = Vec::new();
+    let mut names = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
@@ -71,14 +85,79 @@ pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         if validate_name(&name).is_ok() {
-            profiles.push(ProfileInfo {
-                complete: is_complete(target, &name)?,
-                name,
-            });
+            names.push(name);
         }
     }
-    profiles.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-    Ok(profiles)
+    names.sort_unstable();
+    Ok(names)
+}
+
+/// Resolve command-line profile names and `*`/`?` patterns in input order.
+pub fn resolve_names(target: &TargetSpec, patterns: &[String]) -> Result<Vec<String>> {
+    let available = if patterns.iter().any(|pattern| has_wildcards(pattern)) {
+        names(target)?
+    } else {
+        Vec::new()
+    };
+    let mut resolved = IndexSet::new();
+
+    for pattern in patterns {
+        if has_wildcards(pattern) {
+            let mut matched = false;
+            for name in &available {
+                if matches_pattern(pattern, name) {
+                    matched = true;
+                    resolved.insert(name.clone());
+                }
+            }
+            if !matched {
+                return Err(AppError::NoProfilesMatched(pattern.clone()));
+            }
+        } else {
+            resolved.insert(pattern.clone());
+        }
+    }
+    Ok(resolved.into_iter().collect())
+}
+
+fn has_wildcards(pattern: &str) -> bool {
+    pattern.contains(['*', '?'])
+}
+
+fn matches_pattern(pattern: &str, name: &str) -> bool {
+    let (mut pattern, mut name) = (pattern, name);
+    let (mut star_pattern, mut star_name) = (None, "");
+
+    loop {
+        match (pattern.chars().next(), name.chars().next()) {
+            (None, None) => return true,
+            (Some('*'), _) => {
+                pattern = drop_first_char(pattern);
+                star_pattern = Some(pattern);
+                star_name = name;
+            }
+            (Some('?'), Some(_)) => {
+                pattern = drop_first_char(pattern);
+                name = drop_first_char(name);
+            }
+            (Some(pattern_char), Some(name_char)) if pattern_char == name_char => {
+                pattern = drop_first_char(pattern);
+                name = drop_first_char(name);
+            }
+            _ => match star_pattern {
+                Some(retry_pattern) if !star_name.is_empty() => {
+                    star_name = drop_first_char(star_name);
+                    name = star_name;
+                    pattern = retry_pattern;
+                }
+                _ => return false,
+            },
+        }
+    }
+}
+
+fn drop_first_char(value: &str) -> &str {
+    &value[value.chars().next().expect("non-empty string").len_utf8()..]
 }
 
 pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Result<()> {
@@ -235,4 +314,20 @@ fn validate_resources(
 fn write_resource(path: &Path, spec: &ResourceSpec, content: &[u8]) -> Result<()> {
     (spec.validate)(content)?;
     fs_util::write_file(path, content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_pattern;
+
+    #[test]
+    fn wildcard_patterns_match_expected_names() {
+        assert!(matches_pattern("work-*", "work-codex"));
+        assert!(matches_pattern("c?dex", "codex"));
+        assert!(matches_pattern("*", "anything"));
+        assert!(matches_pattern("a*?", "a*"));
+        assert!(!matches_pattern("work-*", "personal"));
+        assert!(!matches_pattern("c?dex", "coddex"));
+        assert!(matches_pattern("?配置", "项配置"));
+    }
 }

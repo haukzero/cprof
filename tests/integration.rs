@@ -216,6 +216,30 @@ fn profile_name_validation() {
 
 #[test]
 #[serial]
+fn profile_patterns_resolve_names_without_duplicates() {
+    let target = claude();
+    let prefix = unique_name("pattern");
+    let first = format!("{prefix}_first");
+    let second = format!("{prefix}_second");
+    profile::create(target, &first, None).unwrap();
+    profile::create(target, &second, None).unwrap();
+
+    let patterns = vec![format!("{prefix}_*"), first.clone()];
+    assert_eq!(
+        profile::resolve_names(target, &patterns).unwrap(),
+        vec![first.clone(), second.clone()]
+    );
+    assert!(matches!(
+        profile::resolve_names(target, &["missing_*".to_string()]),
+        Err(cprof::error::AppError::NoProfilesMatched(pattern)) if pattern == "missing_*"
+    ));
+
+    cleanup(target, &first);
+    cleanup(target, &second);
+}
+
+#[test]
+#[serial]
 fn copied_profile_preserves_resources() {
     let target = codex();
     let source = unique_name("copy_source");

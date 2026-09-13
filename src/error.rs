@@ -6,6 +6,9 @@ pub enum AppError {
     #[error("Profile '{0}' not found")]
     ProfileNotFound(String),
 
+    #[error("No profiles matched '{0}'")]
+    NoProfilesMatched(String),
+
     #[error("Invalid profile name '{0}'")]
     InvalidProfileName(String),
 

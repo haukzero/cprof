@@ -13,7 +13,7 @@ pub fn run(target: &'static TargetSpec, names: Vec<String>) -> Result<()> {
             "Profile name to remove (type to search)",
         )?]
     } else {
-        names
+        profile::resolve_names(target, &names)?
     };
     for name in names {
         prompt::require_profile(target, &name)?;
