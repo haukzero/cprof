@@ -3,6 +3,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod editor;
+pub mod elevate;
 pub mod error;
 mod fs_util;
 pub mod package;

@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use clap::Parser;
 use cprof::activation;
@@ -19,6 +20,42 @@ fn claude() -> &'static targets::TargetSpec {
 }
 fn codex() -> &'static targets::TargetSpec {
     targets::get("codex").unwrap()
+}
+
+fn symlink_creation_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        let path = std::env::temp_dir().join(format!("cprof-symlink-test-{}", std::process::id()));
+        let source = path.join("source");
+        let link = path.join("link");
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        fs::write(&source, b"test").unwrap();
+
+        let result = {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(&source, &link)
+            }
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_file(&source, &link)
+            }
+        };
+        let available = match result {
+            Ok(()) => true,
+            Err(error) => {
+                let app_error = cprof::error::AppError::Io(error);
+                if cprof::elevate::is_privilege_error(&app_error) {
+                    false
+                } else {
+                    panic!("failed to probe symlink creation: {app_error}");
+                }
+            }
+        };
+        let _ = fs::remove_dir_all(&path);
+        available
+    })
 }
 
 fn cleanup(target: &'static targets::TargetSpec, name: &str) {
@@ -69,6 +106,9 @@ impl Drop for LinkBackup {
 #[test]
 #[serial]
 fn claude_profile_lifecycle() {
+    if !symlink_creation_available() {
+        return;
+    }
     let target = claude();
     let _links = LinkBackup::new(target);
     let name = unique_name("claude_lifecycle");
@@ -95,6 +135,9 @@ fn claude_profile_lifecycle() {
 #[test]
 #[serial]
 fn codex_profile_has_two_resources_and_switches_together() {
+    if !symlink_creation_available() {
+        return;
+    }
     let target = codex();
     let _links = LinkBackup::new(target);
     let name = unique_name("codex");
@@ -120,6 +163,9 @@ fn codex_profile_has_two_resources_and_switches_together() {
 #[test]
 #[serial]
 fn codex_reports_partial_and_mixed_links() {
+    if !symlink_creation_available() {
+        return;
+    }
     let target = codex();
     let _links = LinkBackup::new(target);
     let first = unique_name("first");

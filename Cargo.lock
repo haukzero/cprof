@@ -186,6 +186,7 @@ dependencies = [
  "thiserror",
  "toml",
  "which",
+ "windows-sys",
  "zip",
 ]
 

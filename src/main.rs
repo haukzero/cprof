@@ -7,6 +7,9 @@ fn main() {
     let result = run();
 
     if let Err(error) = result {
+        if cprof::elevate::is_elevated_child() {
+            std::process::exit(1);
+        }
         eprintln!("{} {}", style::error_label(), error);
         std::process::exit(1);
     }

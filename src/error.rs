@@ -33,6 +33,9 @@ pub enum AppError {
     #[error("Editor exited with non-zero status")]
     EditorFailed,
 
+    #[error("UAC elevation was cancelled or failed")]
+    ElevationFailed,
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
