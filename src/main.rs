@@ -59,7 +59,11 @@ fn run_target_command(target_id: &str, command: TargetCommand) -> cprof::error::
         TargetCommand::List => commands::list::run(target),
         TargetCommand::Which => commands::which::run(target),
         TargetCommand::Num => commands::num::run(target),
-        TargetCommand::Create { name, editor } => commands::create::run(target, name, editor),
+        TargetCommand::Create {
+            name,
+            copy_from,
+            editor,
+        } => commands::create::run(target, name, copy_from, editor),
         TargetCommand::Edit {
             name,
             filename,

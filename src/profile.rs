@@ -81,19 +81,39 @@ pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
     Ok(profiles)
 }
 
-pub fn create(target: &TargetSpec, name: &str) -> Result<()> {
+pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Result<()> {
     validate_name(name)?;
     let dir = config::profile_dir(target, name)?;
     if dir.exists() {
         return Err(AppError::ProfileExists(name.to_string()));
     }
 
-    fs::create_dir_all(&dir)?;
-    for spec in target.resources {
-        if let Err(error) = write_resource(&dir.join(spec.filename), spec, spec.template) {
-            let _ = fs_util::remove_dir_if_exists(&dir);
-            return Err(error);
+    let source_dir = match copy_from {
+        Some(source) => {
+            if !exists(target, source)? {
+                return Err(AppError::ProfileNotFound(source.to_string()));
+            }
+            Some(config::profile_dir(target, source)?)
         }
+        None => None,
+    };
+
+    fs::create_dir_all(&dir)?;
+    let result = target.resources.iter().try_for_each(|resource| {
+        let destination = dir.join(resource.filename);
+        if let Some(source_dir) = &source_dir {
+            let source_path = source_dir.join(resource.filename);
+            if source_path.exists() {
+                fs_util::write_file(&destination, &fs::read(source_path)?)?;
+            }
+        } else {
+            write_resource(&destination, resource, resource.template)?;
+        }
+        Ok::<(), AppError>(())
+    });
+    if let Err(error) = result {
+        let _ = fs_util::remove_dir_if_exists(&dir);
+        return Err(error);
     }
     Ok(())
 }

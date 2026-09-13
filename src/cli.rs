@@ -83,6 +83,9 @@ pub enum TargetCommand {
     Create {
         /// Profile name (prompts if omitted)
         name: Option<String>,
+        /// Copy an existing profile before editing
+        #[arg(short, long, value_name = "PROFILE")]
+        copy_from: Option<String>,
         /// Editor to use (overrides default)
         #[arg(long)]
         editor: Option<String>,

@@ -27,7 +27,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> which` | 当前激活状态 |
 | `cprof <target> num` | profile 总数 |
 | `cprof <target> switch [name] [-f]` | 切换 profile |
-| `cprof <target> create [name]` | 创建并编辑 profile |
+| `cprof <target> create [name] [-c profile]` | 创建并编辑 profile, 可从已有 profile 复制 |
 | `cprof <target> edit [name] [--filename key]` | 编辑 profile |
 | `cprof <target> remove [names...]` | 删除 profile |
 | `cprof <target> clean [-f]` | 清空所有 profile |
@@ -37,9 +37,11 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof pack [--save path]` | 一次打包所有 target |
 | `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 
-除 `create` 外, 省略 profile 名称会进入模糊搜索选择. `--filename` 使用资源逻辑名称: 
-Claude 为 `settings`, Codex 为 `config` 或 `auth`. 
-省略 target 的 `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`. 
+- `create name` 默认从模板创建; 使用 `--copy-from profile` 或 `-c profile` 会先复制指定的已有 profile, 再进入编辑器. 省略 `create` 的名称时, 输入新名称后可在默认模板和已有 profile 间模糊选择来源. 
+- 其他省略 profile 名称的命令会进入模糊搜索选择. `--filename` 使用资源逻辑名称:
+    - Claude 为 `settings`
+    - Codex 为 `config` 或 `auth`. 
+- 省略 target 的 `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`. 
 
 ### 外部 target
 

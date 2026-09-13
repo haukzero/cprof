@@ -41,6 +41,28 @@ pub fn select_profile(
     }
 }
 
+pub fn select_copy_source(target: &'static TargetSpec) -> Result<Option<String>> {
+    let profiles = profile::list(target)?;
+    let active = activation::active_name(target)?;
+    let mut labels = vec!["Default template".to_string()];
+    labels.extend(profiles.iter().map(|profile| {
+        let status = if active.as_deref() == Some(profile.name.as_str()) {
+            " (active)"
+        } else if !profile.complete {
+            " (incomplete)"
+        } else {
+            ""
+        };
+        format!("{}{}", profile.name, status)
+    }));
+    let selection = FuzzySelect::new()
+        .with_prompt("Copy from (type to search)")
+        .items(&labels)
+        .interact()
+        .map_err(|e| AppError::Other(e.to_string()))?;
+    Ok((selection > 0).then(|| profiles[selection - 1].name.clone()))
+}
+
 pub fn require_profile(target: &TargetSpec, name: &str) -> Result<()> {
     if !profile::exists(target, name)? {
         return Err(AppError::ProfileNotFound(name.to_string()));
