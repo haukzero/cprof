@@ -1,39 +1,26 @@
 use std::fs;
 use std::path::Path;
 
-use dialoguer::Confirm;
-
 use crate::error::{AppError, Result};
 use crate::package;
 use crate::profile;
+use crate::prompt;
 use crate::style;
 use crate::targets::{self, ExternalTargetConfig, TargetSpec};
 
 pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Result<()> {
-    run_with_fallback(target.id, Some(target), path, force)
-}
-
-pub fn run_by_id(target_id: &str, path: Option<String>, force: bool) -> Result<()> {
-    run_with_fallback(target_id, None, path, force)
-}
-
-fn run_with_fallback(
-    target_id: &str,
-    fallback: Option<&'static TargetSpec>,
-    path: Option<String>,
-    force: bool,
-) -> Result<()> {
     let packages = read_package(path)?;
     let package = packages
         .into_iter()
-        .find(|package| package.target == target_id)
+        .find(|package| package.target == target.id)
         .ok_or_else(|| {
-            AppError::InvalidPackage(format!("Package does not contain target '{target_id}'"))
+            AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
         })?;
     let target_configs = merge_target_configs(std::slice::from_ref(&package), force)?;
-    let target = resolve_target(&package, &target_configs, fallback)?;
+    let target = resolve_target(&package, &target_configs)?;
     let profiles = remap_profiles(target, package.profiles)?;
-    unpack_target(target, profiles, force).map(|_| ())
+    unpack_target(target, profiles, force)?;
+    Ok(())
 }
 
 pub(crate) fn unpack_target(
@@ -70,7 +57,10 @@ pub(crate) fn unpack_target(
         println!("Unpacked '{}'", package_profile.name);
         unpacked += 1;
     }
-    println!("Unpacked target '{}'", target.id);
+    println!(
+        "{}",
+        style::heading(&format!("Unpacked target '{}'", target.id))
+    );
     Ok((unpacked, skipped))
 }
 
@@ -122,12 +112,11 @@ fn effective_target_from_config(
 pub(crate) fn resolve_target(
     package: &package::TargetPackage,
     configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
-    fallback: Option<&'static TargetSpec>,
 ) -> Result<&'static TargetSpec> {
-    match (package.target_config.is_some(), fallback) {
-        (true, _) => effective_target_from_config(package, configs),
-        (false, Some(target)) => Ok(target),
-        (false, None) => targets::get(&package.target),
+    if package.target_config.is_some() {
+        effective_target_from_config(package, configs)
+    } else {
+        targets::get(&package.target)
     }
 }
 
@@ -165,23 +154,12 @@ pub(crate) fn remap_profiles(
 }
 
 fn should_overwrite(name: &str) -> Result<bool> {
-    confirm(format!("Overwrite '{name}' ?"))
+    prompt::confirm(&format!("Overwrite '{name}' ?"))
 }
 
 fn should_use_packaged(prompt: &str, force: bool) -> Result<bool> {
     if force {
         return Ok(true);
     }
-    confirm(prompt)
-}
-
-fn confirm(prompt: impl Into<String>) -> Result<bool> {
-    if !atty::is(atty::Stream::Stdin) {
-        return Ok(false);
-    }
-    Confirm::new()
-        .with_prompt(prompt)
-        .default(false)
-        .interact()
-        .map_err(|error| AppError::Other(error.to_string()))
+    prompt::confirm(prompt)
 }

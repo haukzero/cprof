@@ -71,6 +71,9 @@ pub fn require_profile(target: &TargetSpec, name: &str) -> Result<()> {
 }
 
 pub fn confirm(prompt: &str) -> Result<bool> {
+    if !atty::is(atty::Stream::Stdin) {
+        return Ok(false);
+    }
     Confirm::new()
         .with_prompt(prompt)
         .default(false)
