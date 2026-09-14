@@ -18,7 +18,17 @@ fn main() {
 fn run() -> cprof::error::Result<()> {
     let command_names = cli::command_names();
     targets::validate_command_conflicts(&command_names)?;
-    let command = Cli::parse().command;
+    let command = match Cli::try_parse() {
+        Ok(cli) => cli.command,
+        Err(error) if cli::is_root_help_error(&error) => {
+            let extra_target_ids = targets::all()?.iter().filter_map(|target| {
+                (!command_names.iter().any(|name| name == target.id)).then_some(target.id)
+            });
+            cli::command_with_extra_targets(extra_target_ids).print_help()?;
+            return Ok(());
+        }
+        Err(error) => error.exit(),
+    };
     match command {
         RootCommand::Claude(args) => run_target_command("claude", args.command),
         RootCommand::Codex(args) => run_target_command("codex", args.command),
@@ -28,16 +38,19 @@ fn run() -> cprof::error::Result<()> {
             let target_id = args.first().cloned().ok_or_else(|| {
                 cprof::error::AppError::Other("Missing target command".to_string())
             })?;
-            let target_command = parse_target_command(args.into_iter().skip(1))?;
+            targets::get(&target_id)?;
+            let target_command = parse_target_command(&target_id, args.into_iter().skip(1))?;
             run_target_command(&target_id, target_command)
         }
     }
 }
 
 fn parse_target_command(
+    target_id: &str,
     args: impl IntoIterator<Item = String>,
 ) -> cprof::error::Result<TargetCommand> {
-    match TargetCli::try_parse_from(std::iter::once("cprof".to_string()).chain(args)) {
+    let command_name = format!("cprof {target_id}");
+    match TargetCli::try_parse_from(std::iter::once(command_name).chain(args)) {
         Ok(cli) => Ok(cli.command),
         Err(error)
             if matches!(

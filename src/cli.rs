@@ -23,6 +23,31 @@ pub fn command_names() -> Vec<String> {
     names
 }
 
+pub fn command_with_extra_targets(
+    extra_target_ids: impl IntoIterator<Item = &'static str>,
+) -> clap::Command {
+    let mut command = Cli::command();
+    for target_id in extra_target_ids {
+        command = command
+            .subcommand(clap::Command::new(target_id).about("Manage profiles for this target"));
+    }
+    command
+}
+
+pub fn is_root_help_error(error: &clap::Error) -> bool {
+    if !matches!(
+        error.kind(),
+        clap::error::ErrorKind::DisplayHelp
+            | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    ) {
+        return false;
+    }
+
+    // Clap does not expose the command path on help errors, so compare the root rendering.
+    let mut command = Cli::command();
+    error.render().to_string() == command.render_help().to_string()
+}
+
 #[derive(Subcommand)]
 pub enum RootCommand {
     /// Manage Claude Code profiles
@@ -132,4 +157,41 @@ pub enum TargetCommand {
     Pack(PackArgs),
     /// Unpack a portable package
     Unpack(UnpackArgs),
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::command_with_extra_targets;
+
+    #[test]
+    fn extra_targets_are_listed_in_root_help() {
+        let mut command = command_with_extra_targets(["custom"]);
+        let help = command.render_help().to_string();
+
+        assert!(help.contains("custom"));
+    }
+
+    #[test]
+    fn root_help_errors_are_distinguished_from_nested_help() {
+        for args in [
+            vec!["cprof"],
+            vec!["cprof", "help"],
+            vec!["cprof", "--help"],
+            vec!["cprof", "-h"],
+        ] {
+            let error = match super::Cli::try_parse_from(args) {
+                Ok(_) => panic!("expected help error"),
+                Err(error) => error,
+            };
+            assert!(super::is_root_help_error(&error));
+        }
+
+        let error = match super::Cli::try_parse_from(["cprof", "help", "codex"]) {
+            Ok(_) => panic!("expected help error"),
+            Err(error) => error,
+        };
+        assert!(!super::is_root_help_error(&error));
+    }
 }
