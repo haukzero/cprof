@@ -1,5 +1,5 @@
 use clap::{Parser, error::ErrorKind};
-use cprof::{cli, commands, style, targets};
+use cprof::{cli, commands, root_commands, style, targets};
 
 use cli::{Cli, RootCommand, TargetCli, TargetCommand};
 
@@ -32,8 +32,9 @@ fn run() -> cprof::error::Result<()> {
     match command {
         RootCommand::Claude(args) => run_target_command("claude", args.command),
         RootCommand::Codex(args) => run_target_command("codex", args.command),
-        RootCommand::Pack(args) => commands::pack::run_all(args.save),
-        RootCommand::Unpack(args) => commands::unpack::run_all(args.path, args.force),
+        RootCommand::Pack(args) => root_commands::pack::run(args.save),
+        RootCommand::Unpack(args) => root_commands::unpack::run(args.path, args.force),
+        RootCommand::Targets => root_commands::targets::run(),
         RootCommand::External(args) => {
             let target_id = args.first().cloned().ok_or_else(|| {
                 cprof::error::AppError::Other("Missing target command".to_string())

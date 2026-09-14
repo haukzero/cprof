@@ -18,7 +18,21 @@ cargo install --git https://github.com/haukzero/cprof.git
 
 ## 命令
 
-目标命令格式为 `cprof <target> <command>`, 内置 target 为 `claude` 和 `codex`, 也可以在 `~/.cprof/extra-target.toml` 中添加外部 target. 
+命令分为 root command 和 target subcommand 两级.
+
+### Root command
+
+| 命令 | 说明 |
+|------|------|
+| `cprof pack [--save path]` | 一次打包所有 target |
+| `cprof unpack [--path path] [-f]` | 一次解包所有 target |
+| `cprof targets` | 列出所有 target 及其类型和存储目录 |
+
+- Root command `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`.
+
+### Target subcommand
+
+目标命令格式为 `cprof <target> <command>`, 内置 target 为 `claude` 和 `codex`, 也可以在 `~/.cprof/extra-target.toml` 中[添加外部 target](#外部-target).
 
 | 命令 | 说明 |
 |------|------|
@@ -34,14 +48,11 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> where [name] [--filename key]` | profile 文件实际位置 |
 | `cprof <target> pack [--save path]` | 打包指定 target |
 | `cprof <target> unpack [--path path] [-f]` | 解包指定 target |
-| `cprof pack [--save path]` | 一次打包所有 target |
-| `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 
 - `create name` 默认从模板创建; 使用 `--copy-from profile` 或 `-c profile` 会先复制指定的已有 profile, 再进入编辑器. 省略 `create` 的名称时, 输入新名称后可在默认模板和已有 profile 间模糊选择来源. 
 - 其他省略 profile 名称的命令会进入模糊搜索选择. `--filename` 使用资源逻辑名称:
     - Claude 为 `settings`
     - Codex 为 `config` 或 `auth`. 
-- 省略 target 的 `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`. 
 
 ### 外部 target
 

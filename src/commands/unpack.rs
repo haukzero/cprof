@@ -36,25 +36,7 @@ fn run_with_fallback(
     unpack_target(target, profiles, force).map(|_| ())
 }
 
-pub fn run_all(path: Option<String>, force: bool) -> Result<()> {
-    let packages = read_package(path)?;
-    let target_configs = merge_target_configs(&packages, force)?;
-    let mut targets = 0;
-    let mut unpacked = 0;
-    let mut skipped = 0;
-    for package in packages {
-        let target = resolve_target(&package, &target_configs, None)?;
-        let profiles = remap_profiles(target, package.profiles)?;
-        let (written, ignored) = unpack_target(target, profiles, force)?;
-        targets += 1;
-        unpacked += written;
-        skipped += ignored;
-    }
-    println!("\nDone: {unpacked} unpacked, {skipped} skipped across {targets} target(s)");
-    Ok(())
-}
-
-fn unpack_target(
+pub(crate) fn unpack_target(
     target: &'static TargetSpec,
     profiles: Vec<package::PackageProfile>,
     force: bool,
@@ -92,7 +74,7 @@ fn unpack_target(
     Ok((unpacked, skipped))
 }
 
-fn merge_target_configs(
+pub(crate) fn merge_target_configs(
     packages: &[package::TargetPackage],
     force: bool,
 ) -> Result<std::collections::BTreeMap<String, ExternalTargetConfig>> {
@@ -110,7 +92,7 @@ fn merge_target_configs(
     Ok(merged)
 }
 
-fn read_package(path: Option<String>) -> Result<Vec<package::TargetPackage>> {
+pub(crate) fn read_package(path: Option<String>) -> Result<Vec<package::TargetPackage>> {
     let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     let path = Path::new(&path);
     if !path.exists() {
@@ -137,7 +119,7 @@ fn effective_target_from_config(
     )?)))
 }
 
-fn resolve_target(
+pub(crate) fn resolve_target(
     package: &package::TargetPackage,
     configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
     fallback: Option<&'static TargetSpec>,
@@ -149,7 +131,7 @@ fn resolve_target(
     }
 }
 
-fn remap_profiles(
+pub(crate) fn remap_profiles(
     target: &'static TargetSpec,
     profiles: Vec<package::PackageProfile>,
 ) -> Result<Vec<package::PackageProfile>> {

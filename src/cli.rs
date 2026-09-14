@@ -60,6 +60,8 @@ pub enum RootCommand {
     Pack(PackArgs),
     /// Unpack profiles for every target in a package
     Unpack(UnpackArgs),
+    /// List all registered targets
+    Targets,
     /// Manage a target configured in ~/.cprof/extra-target.toml
     #[command(external_subcommand)]
     External(Vec<String>),
