@@ -27,10 +27,12 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof pack [--save path]` | 一次打包所有 target |
 | `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target 的 profile |
+| `cprof edit-extra [--editor editor]` | 编辑外部 target 配置文件 |
 | `cprof targets` | 列出所有 target 及其相关信息 |
 
 - Root command `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`.
 - Root command `clean` 默认保留 `extra-target.toml`, 使用 `--extra-toml` 一并删除.
+- Root command `edit-extra` 会创建(如果不存在)并打开 `~/.cprof/extra-target.toml`; 使用 `--editor` 可手动指定编辑器.
 
 ### Target subcommand
 
@@ -45,7 +47,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> switch [name] [-f]` | 切换 profile |
 | `cprof <target> create [name] [-c profile]` | 创建并编辑 profile, 可从已有 profile 复制 |
 | `cprof <target> edit [name] [--filename key]` | 编辑 profile |
-| `cprof <target> remove [names...]` | 删除 profile，名称支持 `*` 和 `?` 通配符 |
+| `cprof <target> remove [names...]` | 删除 profile, 名称支持 `*` 和 `?` 通配符 |
 | `cprof <target> clean [-f]` | 清空所有 profile |
 | `cprof <target> where [name] [--filename key]` | profile 文件实际位置 |
 | `cprof <target> pack [--save path]` | 打包指定 target |

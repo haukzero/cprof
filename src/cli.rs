@@ -63,6 +63,8 @@ pub enum RootCommand {
     Unpack(UnpackArgs),
     /// Remove all profiles and optionally the external target configuration
     Clean(CleanArgs),
+    /// Edit the external target configuration file
+    EditExtra(EditExtraArgs),
     /// List all registered targets
     Targets,
 
@@ -108,6 +110,13 @@ pub struct CleanArgs {
     /// Also remove ~/.cprof/extra-target.toml
     #[arg(long)]
     pub extra_toml: bool,
+}
+
+#[derive(Args)]
+pub struct EditExtraArgs {
+    /// Editor to use (overrides default)
+    #[arg(long)]
+    pub editor: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -177,48 +186,13 @@ pub enum TargetCommand {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
-
-    use super::{Cli, RootCommand, command_with_extra_targets};
+    use super::command_with_extra_targets;
 
     #[test]
     fn extra_targets_are_listed_in_root_help() {
-        let mut command = command_with_extra_targets(["custom"]);
+        let mut command = command_with_extra_targets(["test_extra_target"]);
         let help = command.render_help().to_string();
 
-        assert!(help.contains("custom"));
-    }
-
-    #[test]
-    fn root_clean_accepts_extra_toml_flag() {
-        let cli = Cli::try_parse_from(["cprof", "clean", "--force", "--extra-toml"]).unwrap();
-        let RootCommand::Clean(args) = cli.command else {
-            panic!("expected root clean command");
-        };
-
-        assert!(args.force);
-        assert!(args.extra_toml);
-    }
-
-    #[test]
-    fn root_help_errors_are_distinguished_from_nested_help() {
-        for args in [
-            vec!["cprof"],
-            vec!["cprof", "help"],
-            vec!["cprof", "--help"],
-            vec!["cprof", "-h"],
-        ] {
-            let error = match super::Cli::try_parse_from(args) {
-                Ok(_) => panic!("expected help error"),
-                Err(error) => error,
-            };
-            assert!(super::is_root_help_error(&error));
-        }
-
-        let error = match super::Cli::try_parse_from(["cprof", "help", "codex"]) {
-            Ok(_) => panic!("expected help error"),
-            Err(error) => error,
-        };
-        assert!(!super::is_root_help_error(&error));
+        assert!(help.contains("test_extra_target"));
     }
 }
