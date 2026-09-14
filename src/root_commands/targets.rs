@@ -1,3 +1,4 @@
+use crate::activation;
 use crate::config;
 use crate::error::Result;
 use crate::targets;
@@ -6,6 +7,7 @@ struct TargetRow {
     name: String,
     kind: &'static str,
     store_dir: String,
+    active: String,
 }
 
 struct TableColumn<T> {
@@ -14,6 +16,25 @@ struct TableColumn<T> {
 }
 
 impl TargetRow {
+    fn new(target: &'static targets::TargetSpec) -> Result<Self> {
+        let kind = if targets::is_builtin(target) {
+            "built-in"
+        } else {
+            "extra"
+        };
+        let store_dir = config::profiles_dir(target)?.display().to_string();
+        let active = match activation::active_name(target)? {
+            Some(name) => name,
+            None => "(none)".to_string(),
+        };
+        Ok(TargetRow {
+            name: target.id.to_string(),
+            kind,
+            store_dir,
+            active,
+        })
+    }
+
     fn name(&self) -> &str {
         &self.name
     }
@@ -24,6 +45,10 @@ impl TargetRow {
 
     fn store_dir(&self) -> &str {
         &self.store_dir
+    }
+
+    fn active(&self) -> &str {
+        &self.active
     }
 }
 
@@ -40,22 +65,16 @@ const TARGET_COLUMNS: &[TableColumn<TargetRow>] = &[
         header: "store dir",
         value: TargetRow::store_dir,
     },
+    TableColumn {
+        header: "active",
+        value: TargetRow::active,
+    },
 ];
 
 pub fn run() -> Result<()> {
     let rows = targets::all()?
         .iter()
-        .map(|target| {
-            Ok(TargetRow {
-                name: target.id.to_string(),
-                kind: if targets::is_builtin(target) {
-                    "built-in"
-                } else {
-                    "extra"
-                },
-                store_dir: config::profiles_dir(target)?.display().to_string(),
-            })
-        })
+        .map(|target| TargetRow::new(target))
         .collect::<Result<Vec<_>>>()?;
 
     print!("{}", render_table(&rows, TARGET_COLUMNS));
@@ -125,11 +144,38 @@ mod tests {
                 name: "codex".to_string(),
                 kind: "built-in",
                 store_dir: "/tmp/profiles/codex".to_string(),
+                active: "(none)".to_string(),
             }],
             TARGET_COLUMNS,
         );
 
-        assert!(output.contains("name   type      store dir"));
-        assert!(output.contains("codex  built-in  /tmp/profiles/codex"));
+        let mut lines = output.lines();
+        assert_eq!(
+            lines
+                .next()
+                .expect("table should contain a header")
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            ["name", "type", "store", "dir", "active"]
+        );
+        let separator = lines.next().expect("table should contain a separator");
+        assert!(separator.contains('-'));
+        assert!(
+            separator
+                .chars()
+                .all(|character| character == '-' || character == ' ')
+        );
+        assert_eq!(
+            lines
+                .next()
+                .expect("table should contain a target row")
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            ["codex", "built-in", "/tmp/profiles/codex", "(none)"]
+        );
+        assert!(
+            lines.next().is_none(),
+            "table should contain one target row"
+        );
     }
 }
