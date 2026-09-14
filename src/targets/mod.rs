@@ -16,6 +16,8 @@ pub(crate) use external::{
 
 pub type Validator = fn(&[u8]) -> Result<()>;
 
+pub(crate) const EXTRA_TARGET_FILE: &str = "extra-target.toml";
+
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceSpec {
     pub key: &'static str,

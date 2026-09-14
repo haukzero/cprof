@@ -34,6 +34,7 @@ fn run() -> cprof::error::Result<()> {
         RootCommand::Codex(args) => run_target_command("codex", args.command),
         RootCommand::Pack(args) => root_commands::pack::run(args.save),
         RootCommand::Unpack(args) => root_commands::unpack::run(args.path, args.force),
+        RootCommand::Clean(args) => root_commands::clean::run(args.force, args.extra_toml),
         RootCommand::Targets => root_commands::targets::run(),
         RootCommand::External(args) => {
             let target_id = args.first().cloned().ok_or_else(|| {

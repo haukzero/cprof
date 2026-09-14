@@ -30,3 +30,8 @@ pub fn active_name(name: &str) -> ColoredString {
 pub fn label(msg: &str) -> ColoredString {
     msg.cyan()
 }
+
+/// Emphasized heading text
+pub fn heading(msg: &str) -> ColoredString {
+    msg.bold()
+}

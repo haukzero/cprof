@@ -56,12 +56,16 @@ pub enum RootCommand {
     /// Manage Codex profiles
     #[command(name = "codex")]
     Codex(TargetArgs),
+
     /// Pack profiles from every registered target
     Pack(PackArgs),
     /// Unpack profiles for every target in a package
     Unpack(UnpackArgs),
+    /// Remove all profiles and optionally the external target configuration
+    Clean(CleanArgs),
     /// List all registered targets
     Targets,
+
     /// Manage a target configured in ~/.cprof/extra-target.toml
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -94,6 +98,16 @@ pub struct UnpackArgs {
     /// Force overwrite all existing profiles
     #[arg(short, long)]
     pub force: bool,
+}
+
+#[derive(Args)]
+pub struct CleanArgs {
+    /// Skip confirmation prompts
+    #[arg(short, long)]
+    pub force: bool,
+    /// Also remove ~/.cprof/extra-target.toml
+    #[arg(long)]
+    pub extra_toml: bool,
 }
 
 #[derive(Subcommand)]
@@ -165,7 +179,7 @@ pub enum TargetCommand {
 mod tests {
     use clap::Parser;
 
-    use super::command_with_extra_targets;
+    use super::{Cli, RootCommand, command_with_extra_targets};
 
     #[test]
     fn extra_targets_are_listed_in_root_help() {
@@ -173,6 +187,17 @@ mod tests {
         let help = command.render_help().to_string();
 
         assert!(help.contains("custom"));
+    }
+
+    #[test]
+    fn root_clean_accepts_extra_toml_flag() {
+        let cli = Cli::try_parse_from(["cprof", "clean", "--force", "--extra-toml"]).unwrap();
+        let RootCommand::Clean(args) = cli.command else {
+            panic!("expected root clean command");
+        };
+
+        assert!(args.force);
+        assert!(args.extra_toml);
     }
 
     #[test]

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::config;
 use crate::error::{AppError, Result};
 
-use super::{ResourceSpec, TargetSpec};
+use super::{EXTRA_TARGET_FILE, ResourceSpec, TargetSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalTargetConfig {
@@ -120,7 +120,7 @@ impl ExternalResourceConfig {
 }
 
 pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetConfig>> {
-    let path = config::repository_dir()?.join("extra-target.toml");
+    let path = config::repository_dir()?.join(EXTRA_TARGET_FILE);
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
@@ -162,10 +162,10 @@ pub(crate) fn write_external_configs(
         );
     }
     let content = toml::to_string(&serialized).map_err(|error| {
-        AppError::Other(format!("Failed to serialize extra-target.toml: {error}"))
+        AppError::Other(format!("Failed to serialize {EXTRA_TARGET_FILE}: {error}"))
     })?;
     let repository = config::repository_dir()?;
-    let path = repository.join("extra-target.toml");
+    let path = repository.join(EXTRA_TARGET_FILE);
     fs::create_dir_all(repository)?;
     fs::write(path, content)?;
     Ok(())
