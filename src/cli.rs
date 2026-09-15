@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use clap::{Args, CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
@@ -13,14 +15,17 @@ pub struct Cli {
     pub command: RootCommand,
 }
 
-pub fn command_names() -> Vec<String> {
-    let mut names = Cli::command()
-        .get_subcommands()
-        .map(|command| command.get_name().to_string())
-        .collect::<Vec<_>>();
-    // Clap handles `help` as an implicit subcommand and does not expose it above.
-    names.push("help".to_string());
-    names
+pub fn command_names() -> &'static [String] {
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names = Cli::command()
+            .get_subcommands()
+            .map(|command| command.get_name().to_string())
+            .collect::<Vec<_>>();
+        // Clap handles `help` as an implicit subcommand and does not expose it above.
+        names.push("help".to_string());
+        names
+    })
 }
 
 pub fn command_with_extra_targets(

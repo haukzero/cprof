@@ -16,11 +16,10 @@ fn main() {
 }
 
 fn run() -> cprof::error::Result<()> {
-    let command_names = cli::command_names();
-    targets::validate_command_conflicts(&command_names)?;
     let command = match Cli::try_parse() {
         Ok(cli) => cli.command,
         Err(error) if cli::is_root_help_error(&error) => {
+            let command_names = cli::command_names();
             let extra_target_ids = targets::all()?.iter().filter_map(|target| {
                 (!command_names.iter().any(|name| name == target.id)).then_some(target.id)
             });

@@ -2,7 +2,6 @@ mod claude;
 mod codex;
 mod external;
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -73,30 +72,11 @@ pub fn all() -> Result<&'static [&'static TargetSpec]> {
     }
 }
 
-pub fn validate_command_conflicts(command_names: &[String]) -> Result<()> {
-    for target in all()? {
-        if !is_builtin(target) && command_names.iter().any(|name| name == target.id) {
-            return Err(AppError::TargetConflict(format!(
-                "target id '{}' conflicts with the command of the same name",
-                target.id
-            )));
-        }
-    }
-    Ok(())
-}
-
 fn load_from_config() -> Result<Box<[&'static TargetSpec]>> {
     let mut targets = BUILTIN_TARGETS.to_vec();
-    let configured = read_external_configs()?;
-    let mut ids = HashSet::new();
-    for (name, target_config) in configured {
-        let target = Box::leak(Box::new(spec_from_external_config(&target_config)?));
-        if !ids.insert(target.id) {
-            return Err(AppError::TargetConflict(format!(
-                "target id '{}' declared by '{name}' conflicts with an existing target",
-                target.id,
-            )));
-        }
+    // Reading validates the entire configuration before any specs are allocated.
+    for target_config in read_external_configs()?.into_values() {
+        let target = Box::leak(Box::new(target_config.to_spec_unchecked()));
         targets.push(target);
     }
     Ok(targets.into_boxed_slice())

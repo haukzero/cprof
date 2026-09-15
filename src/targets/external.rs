@@ -29,6 +29,50 @@ impl ExternalTargetConfig {
         self.id.as_deref().unwrap_or(&self.name)
     }
 
+    fn validate(&self, command_names: &[String]) -> Result<()> {
+        let target_id = self.resolved_id();
+        if super::BUILTIN_TARGETS
+            .iter()
+            .any(|target| target.id == target_id)
+        {
+            return Err(AppError::TargetConflict(format!(
+                "target id '{}' conflicts with an existing target",
+                target_id
+            )));
+        }
+        if command_names.iter().any(|name| name == target_id) {
+            return Err(AppError::TargetConflict(format!(
+                "target id '{}' conflicts with the command of the same name",
+                target_id
+            )));
+        }
+        let mut keys = HashSet::new();
+        for resource in &self.resources {
+            if !keys.insert(resource.resolved_key()) {
+                return Err(AppError::TargetConflict(format!(
+                    "target '{}' declares duplicate resource '{}'",
+                    target_id,
+                    resource.resolved_key()
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Convert without revalidating; the definition must already have passed validation.
+    pub(super) fn to_spec_unchecked(&self) -> TargetSpec {
+        let id = leak_string(self.resolved_id().to_string());
+        let resources = self
+            .resources
+            .iter()
+            .map(ExternalResourceConfig::to_spec)
+            .collect::<Vec<_>>();
+        TargetSpec {
+            id,
+            resources: Box::leak(resources.into_boxed_slice()),
+        }
+    }
+
     pub(crate) fn compact(mut self) -> Self {
         if self.id.as_deref() == Some(self.name.as_str()) {
             self.id = None;
@@ -119,6 +163,22 @@ impl ExternalResourceConfig {
     }
 }
 
+fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -> Result<()> {
+    let command_names = crate::cli::command_names();
+    let mut ids = HashSet::new();
+    for (name, config) in configs {
+        config.validate(command_names)?;
+        if !ids.insert(config.resolved_id()) {
+            return Err(AppError::TargetConflict(format!(
+                "target id '{}' declared by '{name}' conflicts with an existing target",
+                config.resolved_id()
+            )));
+        }
+    }
+    Ok(())
+}
+
+// Keep validation at the read/write boundary: unpack also accesses configs without all().
 pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetConfig>> {
     let path = config::repository_dir()?.join(EXTRA_TARGET_FILE);
     if !path.exists() {
@@ -129,18 +189,21 @@ pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetC
         toml::from_str::<BTreeMap<String, ExtraTarget>>(&content).map_err(|error| {
             AppError::Other(format!("Failed to parse '{}': {error}", path.display()))
         })?;
-    Ok(configured
+    let configs = configured
         .into_iter()
         .map(|(name, target)| {
             let config = target.into_config(name.clone());
             (name, config)
         })
-        .collect())
+        .collect();
+    validate_external_configs(&configs)?;
+    Ok(configs)
 }
 
 pub(crate) fn write_external_configs(
     configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<()> {
+    validate_external_configs(configs)?;
     let mut serialized = BTreeMap::new();
     for (name, config) in configs {
         serialized.insert(
@@ -188,40 +251,8 @@ pub(crate) fn find_external_config<'a>(
 }
 
 pub(crate) fn spec_from_external_config(config: &ExternalTargetConfig) -> Result<TargetSpec> {
-    let target_id = config.resolved_id();
-    if super::BUILTIN_TARGETS
-        .iter()
-        .any(|target| target.id == target_id)
-    {
-        return Err(AppError::TargetConflict(format!(
-            "target id '{}' conflicts with an existing target",
-            target_id
-        )));
-    }
-    let mut keys = HashSet::new();
-    for resource in &config.resources {
-        if !keys.insert(resource.resolved_key()) {
-            return Err(AppError::TargetConflict(format!(
-                "target '{}' declares duplicate resource '{}'",
-                target_id,
-                resource.resolved_key()
-            )));
-        }
-    }
-    Ok(spec_from_external_config_unchecked(config))
-}
-
-fn spec_from_external_config_unchecked(config: &ExternalTargetConfig) -> TargetSpec {
-    let id = leak_string(config.resolved_id().to_string());
-    let resources = config
-        .resources
-        .iter()
-        .map(ExternalResourceConfig::to_spec)
-        .collect::<Vec<_>>();
-    TargetSpec {
-        id,
-        resources: Box::leak(resources.into_boxed_slice()),
-    }
+    config.validate(crate::cli::command_names())?;
+    Ok(config.to_spec_unchecked())
 }
 
 pub(crate) fn merge_external_configs<F>(
@@ -314,6 +345,32 @@ mod tests {
         ExternalResourceConfig, ExternalTargetConfig, ExtraTarget, merge_external_configs,
         spec_from_external_config,
     };
+
+    #[test]
+    fn external_target_ids_cannot_shadow_root_commands() {
+        for name in crate::cli::command_names() {
+            let config = ExternalTargetConfig {
+                name: "example".to_string(),
+                id: Some(name.clone()),
+                resources: vec![],
+            };
+            assert!(matches!(
+                spec_from_external_config(&config),
+                Err(crate::error::AppError::TargetConflict(_))
+            ));
+
+            // A table name may match a command when its explicit id does not.
+            let config = ExternalTargetConfig {
+                name: name.clone(),
+                id: Some("custom-target".to_string()),
+                resources: vec![],
+            };
+            assert_eq!(
+                spec_from_external_config(&config).unwrap().id,
+                "custom-target"
+            );
+        }
+    }
 
     #[test]
     fn external_defaults_and_templates_are_loaded() {

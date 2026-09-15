@@ -32,7 +32,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 
 - Root command `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`.
 - Root command `clean` 默认保留 `extra-target.toml`, 使用 `--extra-toml` 一并删除.
-- Root command `edit-extra` 会创建(如果不存在)并打开 `~/.cprof/extra-target.toml`; 使用 `--editor` 可手动指定编辑器.
+- Root command `edit-extra` 会创建(如果不存在)并打开 `~/.cprof/extra-target.toml`; 使用 `--editor` 可手动指定编辑器. 配置存在语法错误或 target 定义冲突时, 仍可使用此命令编辑修复.
 
 ### Target subcommand
 
@@ -72,7 +72,7 @@ active_path = ".config/example/settings.conf"
 # key, template, required 均可省略; key 默认与 filename 相同, template 默认为空文件
 ```
 
-外部 target 可直接使用上述全部 subcommand, 资源内容不会进行格式校验. target id 与已有 target, 命令冲突时, cprof 会在启动时报告明确错误. 
+外部 target 可直接使用上述全部 subcommand, 资源内容不会进行格式校验. cprof 在命令需要读取 target 配置时加载并校验配置, target id 与已有 target, 命令冲突时会报告明确错误. 根帮助会加载配置以展示外部 target, 因此也需要配置有效.
 
 打包外部 target 时会同时记录 `extra-target.toml` 中的 target 定义. 解包时会与本地配置合并; 新的 target 和资源会自动加入, 定义冲突时交互选择保留本地或使用包内定义. 使用 `-f` 可直接采用包内定义.
 
