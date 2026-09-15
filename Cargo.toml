@@ -29,3 +29,10 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_UI_Shell",
     "Win32_System_Registry",
 ] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+panic = "abort"
