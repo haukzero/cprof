@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::commands;
+use crate::commands::target;
 use crate::error::{AppError, Result};
 use crate::package;
 use crate::targets;
@@ -11,7 +11,7 @@ pub fn run(save: Option<String>) -> Result<()> {
     let packages = targets::all()?
         .iter()
         .copied()
-        .map(commands::pack::collect_target)
+        .map(target::pack::collect_target)
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .flatten()
@@ -19,5 +19,5 @@ pub fn run(save: Option<String>) -> Result<()> {
     if packages.is_empty() {
         return Err(AppError::InvalidPackage("No profiles to pack".to_string()));
     }
-    commands::pack::write_package(output, &packages)
+    target::pack::write_package(output, &packages)
 }

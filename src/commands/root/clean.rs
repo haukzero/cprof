@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::commands;
+use crate::commands::target;
 use crate::config;
 use crate::error::Result;
 use crate::style;
@@ -12,7 +12,7 @@ pub fn run(force: bool, extra_toml: bool) -> Result<()> {
             "{}",
             style::heading(&format!("Cleaning target '{}':", target.id))
         );
-        commands::clean::run(target, force)?;
+        target::clean::run(target, force)?;
     }
 
     if extra_toml {
