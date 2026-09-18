@@ -2,10 +2,16 @@
 name = "cprof"
 version = "0.2.2"
 edition = "2024"
+rust-version = "1.85"
+description = "A command-line profile manager for Claude Code and Codex configurations"
+authors = ["haukzero <haukzero1@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/haukzero/cprof"
+readme = "README.md"
+keywords = ["cli", "configuration", "profiles", "claude", "codex"]
+categories = ["command-line-utilities"]
 
 [dependencies]
-anyhow = "1.0.104"
-atty = "0.2.14"
 clap = { version = "4.6.6", features = ["derive"] }
 colored = "3.1.1"
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }

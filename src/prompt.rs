@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use dialoguer::{Confirm, FuzzySelect};
 
 use crate::activation;
@@ -71,7 +73,7 @@ pub fn require_profile(target: &TargetSpec, name: &str) -> Result<()> {
 }
 
 pub fn confirm(prompt: &str) -> Result<bool> {
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         return Ok(false);
     }
     Confirm::new()
