@@ -1,3 +1,4 @@
+use crate::cli::EditorOptions;
 use crate::editor::EditSession;
 use crate::error::{AppError, Result};
 use crate::profile;
@@ -9,7 +10,7 @@ pub fn run(
     target: &TargetSpec,
     name: Option<String>,
     filename: Option<String>,
-    editor_name: Option<String>,
+    editor: EditorOptions,
 ) -> Result<()> {
     let name = prompt::select_profile(target, name, "Profile to edit (type to search)")?;
     prompt::require_profile(target, &name)?;
@@ -17,7 +18,7 @@ pub fn run(
         Some(filename) => vec![target.resource(&filename)?],
         None => target.resources.iter().collect(),
     };
-    let mut session = EditSession::new(editor_name)?;
+    let mut session = EditSession::new(editor.editor, editor.editor_args)?;
     for resource in resources {
         let path = profile::resource_path(target, &name, resource)?;
         if !path.exists() {

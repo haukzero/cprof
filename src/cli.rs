@@ -113,10 +113,24 @@ pub struct CleanArgs {
 }
 
 #[derive(Args)]
-pub struct EditExtraArgs {
-    /// Editor to use (overrides default)
-    #[arg(long)]
+pub struct EditorOptions {
+    /// Editor executable to use (overrides default)
+    #[arg(long, value_name = "PROGRAM")]
     pub editor: Option<String>,
+    /// Argument passed to the editor (repeatable; requires --editor)
+    #[arg(
+        long = "editor-arg",
+        value_name = "ARG",
+        requires = "editor",
+        allow_hyphen_values = true
+    )]
+    pub editor_args: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct EditExtraArgs {
+    #[command(flatten)]
+    pub editor: EditorOptions,
 }
 
 #[derive(Subcommand)]
@@ -136,9 +150,8 @@ pub enum TargetCommand {
         /// Copy an existing profile before editing
         #[arg(short, long, value_name = "PROFILE")]
         copy_from: Option<String>,
-        /// Editor to use (overrides default)
-        #[arg(long)]
-        editor: Option<String>,
+        #[command(flatten)]
+        editor: EditorOptions,
     },
     /// Edit an existing profile
     Edit {
@@ -147,9 +160,8 @@ pub enum TargetCommand {
         /// Edit only this logical resource, for example "auth"
         #[arg(long)]
         filename: Option<String>,
-        /// Editor to use (overrides default)
-        #[arg(long)]
-        editor: Option<String>,
+        #[command(flatten)]
+        editor: EditorOptions,
     },
     /// Remove profiles by name or wildcard pattern
     Remove {

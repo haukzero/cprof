@@ -27,7 +27,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof pack [--save path]` | 一次打包所有 target |
 | `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target 的 profile |
-| `cprof edit-extra [--editor editor]` | 编辑外部 target 配置文件 |
+| `cprof edit-extra [--editor program] [--editor-arg arg]...` | 编辑外部 target 配置文件 |
 | `cprof targets` | 列出所有 target 及其相关信息 |
 
 - Root command `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`.
@@ -45,8 +45,8 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> which` | 当前激活状态 |
 | `cprof <target> num` | profile 总数 |
 | `cprof <target> switch [name] [-f]` | 切换 profile |
-| `cprof <target> create [name] [-c profile]` | 创建并编辑 profile, 可从已有 profile 复制 |
-| `cprof <target> edit [name] [--filename key]` | 编辑 profile |
+| `cprof <target> create [name] [-c profile] [--editor program] [--editor-arg arg]...` | 创建并编辑 profile, 可从已有 profile 复制 |
+| `cprof <target> edit [name] [--filename key] [--editor program] [--editor-arg arg]...` | 编辑 profile |
 | `cprof <target> remove [names...]` | 删除 profile, 名称支持 `*` 和 `?` 通配符 |
 | `cprof <target> clean [-f]` | 清空所有 profile |
 | `cprof <target> where [name] [--filename key]` | profile 文件实际位置 |
@@ -57,6 +57,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 - 其他省略 profile 名称的命令会进入模糊搜索选择. `--filename` 使用资源逻辑名称:
     - Claude 为 `settings`
     - Codex 为 `config` 或 `auth`. 
+- 编辑器按 `--editor`, `VISUAL`, `EDITOR`, 系统默认值的顺序选择. `--editor-arg` 可重复使用以传入参数; `VISUAL` 和 `EDITOR` 也支持带引号的"程序 + 参数"配置.
 
 ### 外部 target
 
@@ -69,18 +70,18 @@ id = "example-id" # 可选, 默认与表名相同
 [[example.resources]]
 filename = "settings.conf"
 active_path = ".config/example/settings.conf"
-# 或使用绝对路径（二者同时配置时必须指向同一路径）
+# 或使用绝对路径(二者同时配置时必须指向同一路径)
 # absolute_active_path = "/opt/example/settings.conf"
 # key, template, required 均可省略; key 默认与 filename 相同, template 默认为空文件
 ```
 
 外部 target 可直接使用上述全部 subcommand, 资源内容不会进行格式校验. cprof 在命令需要读取 target 配置时加载并校验配置, target id 与已有 target, 命令冲突时会报告明确错误. 根帮助会加载配置以展示外部 target, 因此也需要配置有效.
 
-target id 和 filename 必须是非空的单个路径组件. active_path 相对于 HOME, 不允许绝对路径、Windows 前缀或 `..`, 父目录软链接也不能越出 HOME. 如需指定 HOME 之外的位置, 使用 absolute_active_path. 两个字段同时配置时, 指向同一路径会警告, 指向不同路径会报错. 同一 target 内的 filename 和实际激活路径均不能重复.
+target id 和 filename 必须是非空的单个路径组件. active_path 相对于 HOME, 不允许绝对路径, Windows 前缀或 `..`, 父目录软链接也不能越出 HOME. 如需指定 HOME 之外的位置, 使用 absolute_active_path. 两个字段同时配置时, 指向同一路径会警告, 指向不同路径会报错. 同一 target 内的 filename 和实际激活路径均不能重复.
 
 打包外部 target 时会同时记录 `extra-target.toml` 中的 target 定义. 解包时会与本地配置合并; 新的 target 和资源会自动加入, 定义冲突时交互选择保留本地或使用包内定义. 使用 `-f` 可直接采用包内定义.
 
-本地配置、包内定义及合并结果使用相同的路径校验, `-f` 不会跳过校验. package manifest 只接受当前版本, 其他版本会报错.
+本地配置, 包内定义及合并结果使用相同的路径校验, `-f` 不会跳过校验. package manifest 只接受当前版本, 其他版本会报错.
 
 ## 存储位置
 

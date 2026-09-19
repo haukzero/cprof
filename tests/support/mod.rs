@@ -26,13 +26,17 @@ impl TestHome {
     }
 
     pub(crate) fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_cprof"))
+        self.command(args).output().unwrap()
+    }
+
+    pub(crate) fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cprof"));
+        command
             .args(args)
             .env("HOME", &self.path)
             .env("NO_COLOR", "1")
-            .current_dir(&self.path)
-            .output()
-            .unwrap()
+            .current_dir(&self.path);
+        command
     }
 
     pub(crate) fn succeeds(&self, args: &[&str]) -> String {

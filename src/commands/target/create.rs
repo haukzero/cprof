@@ -1,6 +1,7 @@
 use dialoguer::Input;
 
 use crate::activation::{self, Status};
+use crate::cli::EditorOptions;
 use crate::editor::EditSession;
 use crate::error::{AppError, Result};
 use crate::profile;
@@ -12,7 +13,7 @@ pub fn run(
     target: &TargetSpec,
     name: Option<String>,
     copy_from: Option<String>,
-    editor_name: Option<String>,
+    editor: EditorOptions,
 ) -> Result<()> {
     let (name, copy_from) = match name {
         Some(name) => (name, copy_from),
@@ -30,7 +31,7 @@ pub fn run(
     };
     profile::create(target, &name, copy_from.as_deref())?;
     let result = (|| {
-        let mut session = EditSession::new(editor_name)?;
+        let mut session = EditSession::new(editor.editor, editor.editor_args)?;
         for resource in &target.resources {
             let path = profile::resource_path(target, &name, resource)?;
             session.edit(&path, resource.validate)?;

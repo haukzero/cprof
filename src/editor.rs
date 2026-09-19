@@ -8,14 +8,38 @@ use crate::fs_util::PathTransaction;
 
 pub struct EditSession {
     editor: String,
+    editor_args: Vec<String>,
     transaction: Option<PathTransaction>,
     changed: bool,
 }
 
 impl EditSession {
-    pub fn new(editor: Option<String>) -> Result<Self> {
+    pub fn new(editor: Option<String>, editor_args: Vec<String>) -> Result<Self> {
+        let (editor, editor_args) = match editor {
+            Some(editor) => (editor, editor_args),
+            None => match ["VISUAL", "EDITOR"].into_iter().find_map(|name| {
+                std::env::var(name)
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            }) {
+                Some(command) => {
+                    let mut words = shell_words::split(&command)
+                        .map_err(|error| AppError::InvalidEditorCommand(error.to_string()))?
+                        .into_iter();
+                    let editor = words.next().ok_or_else(|| {
+                        AppError::InvalidEditorCommand("command is empty".to_string())
+                    })?;
+                    (editor, words.collect())
+                }
+                None => (
+                    if cfg!(windows) { "notepad" } else { "vi" }.to_string(),
+                    Vec::new(),
+                ),
+            },
+        };
         Ok(Self {
-            editor: resolve_editor(editor)?,
+            editor,
+            editor_args,
             transaction: Some(PathTransaction::new()),
             changed: false,
         })
@@ -79,7 +103,14 @@ impl EditSession {
             .as_mut()
             .expect("edit transaction is active")
             .stage_file(path, "edit", before, replace)?;
-        open_editor(&self.editor, &draft)?;
+        let status = Command::new(&self.editor)
+            .args(&self.editor_args)
+            .arg(&draft)
+            .status()
+            .map_err(|_| AppError::EditorNotFound(self.editor.clone()))?;
+        if !status.success() {
+            return Err(AppError::EditorFailed);
+        }
         let after = fs::read(&draft).with_path(&draft)?;
         if replace && after == before {
             self.transaction
@@ -100,39 +131,4 @@ impl EditSession {
             None => error,
         }
     }
-}
-
-pub fn resolve_editor(editor: Option<String>) -> Result<String> {
-    match editor {
-        Some(editor) => {
-            if which::which(&editor).is_err() {
-                return Err(AppError::EditorNotFound(editor));
-            }
-            Ok(editor)
-        }
-        None => Ok(default_editor().unwrap_or_else(|| {
-            if cfg!(windows) {
-                "notepad".to_string()
-            } else {
-                "vi".to_string()
-            }
-        })),
-    }
-}
-
-fn default_editor() -> Option<String> {
-    std::env::var("EDITOR")
-        .ok()
-        .or_else(|| std::env::var("VISUAL").ok())
-}
-
-pub fn open_editor(editor: &str, file: &Path) -> Result<()> {
-    let status = Command::new(editor)
-        .arg(file)
-        .status()
-        .map_err(|_| AppError::EditorNotFound(editor.to_string()))?;
-    if !status.success() {
-        return Err(AppError::EditorFailed);
-    }
-    Ok(())
 }

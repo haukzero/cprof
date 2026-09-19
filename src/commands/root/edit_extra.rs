@@ -1,3 +1,4 @@
+use crate::cli::EditorOptions;
 use crate::config;
 use crate::editor::EditSession;
 use crate::error::Result;
@@ -16,9 +17,9 @@ const DEFAULT_TEMPLATE: &[u8] = br#"# Example for extra targets
 # required = true # optional, default: true
 "#;
 
-pub fn run(editor_name: Option<String>) -> Result<()> {
+pub fn run(editor: EditorOptions) -> Result<()> {
     let path = config::extra_target_file()?;
-    let mut session = EditSession::new(editor_name)?;
+    let mut session = EditSession::new(editor.editor, editor.editor_args)?;
     session.edit_or_create(
         &path,
         DEFAULT_TEMPLATE,

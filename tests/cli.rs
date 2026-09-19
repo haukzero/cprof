@@ -104,6 +104,71 @@ fn profile_edit_drafts_keep_the_original_file_extensions() {
 }
 
 #[test]
+fn explicit_editor_arguments_precede_the_draft_path() {
+    let home = TestHome::new();
+    let editor = home.path.join("argument checking editor");
+    fs::write(
+        &editor,
+        "#!/bin/sh\n[ \"$1\" = --wait ] && [ \"$2\" = 'two words' ] && [ -f \"$3\" ]\n",
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
+
+    home.succeeds(&[
+        "edit-extra",
+        "--editor",
+        editor.to_str().unwrap(),
+        "--editor-arg=--wait",
+        "--editor-arg",
+        "two words",
+    ]);
+}
+
+#[test]
+fn visual_takes_priority_and_supports_editor_arguments() {
+    let home = TestHome::new();
+    let editor = home.path.join("visual editor");
+    fs::write(
+        &editor,
+        "#!/bin/sh\n[ \"$1\" = --visual ] || exit 1\nprintf '[visual]\\n' > \"$2\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
+    let visual = format!("\"{}\" --visual", editor.display());
+
+    let output = home
+        .command(&["edit-extra"])
+        .env("VISUAL", visual)
+        .env("EDITOR", "/bin/false")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(home.config_path()).unwrap(),
+        "[visual]\n"
+    );
+}
+
+#[test]
+fn malformed_visual_command_is_reported() {
+    let home = TestHome::new();
+
+    let output = home
+        .command(&["edit-extra"])
+        .env("VISUAL", "'unterminated")
+        .env("EDITOR", "/bin/true")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success(), "{output:?}");
+    assert!(stderr.contains("Invalid editor command"), "{stderr}");
+    assert!(stderr.contains("missing closing quote"), "{stderr}");
+    assert!(!home.config_path().exists());
+}
+
+#[test]
 fn invalid_extra_target_edit_keeps_original_and_removes_temporary_file() {
     let home = TestHome::new();
     let original = "[demo]\n";

@@ -50,6 +50,9 @@ pub enum AppError {
     #[error("Editor '{0}' not found or failed to launch")]
     EditorNotFound(String),
 
+    #[error("Invalid editor command: {0}")]
+    InvalidEditorCommand(String),
+
     #[error("Editor exited with non-zero status")]
     EditorFailed,
 

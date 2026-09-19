@@ -360,7 +360,7 @@ fn create_accepts_copy_from_option() {
         TargetCommand::Create {
             name: Some(name),
             copy_from: Some(source),
-            editor: None,
+            ..
         } if name == "new-profile" && source == "source"
     ));
 }
