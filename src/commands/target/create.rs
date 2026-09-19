@@ -9,7 +9,7 @@ use crate::style;
 use crate::targets::TargetSpec;
 
 pub fn run(
-    target: &'static TargetSpec,
+    target: &TargetSpec,
     name: Option<String>,
     copy_from: Option<String>,
     editor_name: Option<String>,
@@ -31,7 +31,7 @@ pub fn run(
     profile::create(target, &name, copy_from.as_deref())?;
     let result = (|| {
         let mut session = EditSession::new(editor_name)?;
-        for resource in target.resources {
+        for resource in &target.resources {
             let path = profile::resource_path(target, &name, resource)?;
             session.edit(&path, resource.validate)?;
         }

@@ -1,11 +1,11 @@
 use crate::activation;
-use crate::error::Result;
+use crate::error::{IoContext, Result};
 use crate::profile;
 use crate::prompt;
 use crate::style;
 use crate::targets::TargetSpec;
 
-pub fn run(target: &'static TargetSpec, force: bool) -> Result<()> {
+pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
     let profiles = profile::list(target)?;
     let active = activation::active_name(target)?;
     if profiles.is_empty() {
@@ -36,7 +36,7 @@ pub fn run(target: &'static TargetSpec, force: bool) -> Result<()> {
     }
     let dir = crate::config::profiles_dir(target)?;
     if dir.exists() {
-        std::fs::remove_dir_all(dir)?;
+        std::fs::remove_dir_all(&dir).with_path(&dir)?;
     }
     println!(
         "{} Cleaned {} profile(s)",

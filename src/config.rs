@@ -24,8 +24,8 @@ pub(crate) fn extra_target_file() -> Result<PathBuf> {
 }
 
 pub fn profiles_dir(target: &TargetSpec) -> Result<PathBuf> {
-    paths::validate_target_id(target.id)?;
-    paths::join_storage_under(&profiles_root()?, Path::new(target.id))
+    paths::validate_target_id(&target.id)?;
+    paths::join_storage_under(&profiles_root()?, Path::new(&target.id))
 }
 
 pub fn profile_dir(target: &TargetSpec, name: &str) -> Result<PathBuf> {
@@ -38,8 +38,8 @@ pub fn profile_resource(
     name: &str,
     resource: &ResourceSpec,
 ) -> Result<PathBuf> {
-    paths::validate_filename(resource.filename)?;
-    paths::join_storage_under(&profile_dir(target, name)?, Path::new(resource.filename))
+    paths::validate_filename(&resource.filename)?;
+    paths::join_storage_under(&profile_dir(target, name)?, Path::new(&resource.filename))
 }
 
 pub fn active_resource(target: &TargetSpec, resource: &ResourceSpec) -> Result<PathBuf> {

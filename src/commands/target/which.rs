@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::style;
 use crate::targets::TargetSpec;
 
-pub fn run(target: &'static TargetSpec) -> Result<()> {
+pub fn run(target: &TargetSpec) -> Result<()> {
     match activation::status(target)? {
         Status::Active(name) => println!("{}", name),
         Status::NoFiles => println!("{}", style::warning("No active profile")),

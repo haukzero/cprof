@@ -18,28 +18,28 @@ fn validate_json(content: &[u8]) -> Result<()> {
         .map_err(AppError::Json)
 }
 
-const RESOURCES: &[ResourceSpec] = &[
-    ResourceSpec {
-        key: "config",
-        filename: "config.toml",
-        active_path: Some(".codex/config.toml"),
-        absolute_active_path: None,
-        required: true,
-        template: CONFIG_TEMPLATE,
-        validate: validate_toml,
-    },
-    ResourceSpec {
-        key: "auth",
-        filename: "auth.json",
-        active_path: Some(".codex/auth.json"),
-        absolute_active_path: None,
-        required: true,
-        template: AUTH_TEMPLATE,
-        validate: validate_json,
-    },
-];
-
-pub(super) const SPEC: TargetSpec = TargetSpec {
-    id: "codex",
-    resources: RESOURCES,
-};
+pub(super) fn spec() -> TargetSpec {
+    TargetSpec {
+        id: "codex".to_string(),
+        resources: vec![
+            ResourceSpec {
+                key: "config".to_string(),
+                filename: "config.toml".to_string(),
+                active_path: Some(".codex/config.toml".to_string()),
+                absolute_active_path: None,
+                required: true,
+                template: CONFIG_TEMPLATE.to_vec(),
+                validate: validate_toml,
+            },
+            ResourceSpec {
+                key: "auth".to_string(),
+                filename: "auth.json".to_string(),
+                active_path: Some(".codex/auth.json".to_string()),
+                absolute_active_path: None,
+                required: true,
+                template: AUTH_TEMPLATE.to_vec(),
+                validate: validate_json,
+            },
+        ],
+    }
+}

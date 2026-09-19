@@ -1,95 +1,146 @@
-use clap::{Parser, error::ErrorKind};
+use std::ffi::OsString;
+use std::process::ExitCode;
+
+use clap::Parser;
 
 use cprof::cli::{self, Cli, RootCommand, TargetCli, TargetCommand};
 use cprof::commands::{root, target};
-use cprof::{style, targets};
+use cprof::error::AppError;
+use cprof::style;
+use cprof::targets::TargetRepository;
 
-fn main() {
-    let result = run();
+enum RunError {
+    App(AppError),
+    Cli(clap::Error),
+}
 
-    if let Err(error) = result {
-        if cprof::elevate::is_elevated_child() {
-            std::process::exit(1);
-        }
-        eprintln!("{} {}", style::error_label(), error);
-        std::process::exit(1);
+impl From<AppError> for RunError {
+    fn from(error: AppError) -> Self {
+        Self::App(error)
     }
 }
 
-fn run() -> cprof::error::Result<()> {
-    let command = match Cli::try_parse() {
-        Ok(cli) => cli.command,
-        Err(error) if cli::is_root_help_error(&error) => {
-            let command_names = cli::command_names();
-            let extra_target_ids = targets::all()?.iter().filter_map(|target| {
-                (!command_names.iter().any(|name| name == target.id)).then_some(target.id)
-            });
-            cli::command_with_extra_targets(extra_target_ids).print_help()?;
-            return Ok(());
+impl From<clap::Error> for RunError {
+    fn from(error: clap::Error) -> Self {
+        Self::Cli(error)
+    }
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(RunError::App(error)) => {
+            if !cprof::elevate::is_elevated_child() {
+                eprintln!("{} {}", style::error_label(), error);
+            }
+            ExitCode::FAILURE
         }
-        Err(error) => error.exit(),
-    };
+        Err(RunError::Cli(error)) => {
+            let exit_code = error.exit_code();
+            if let Err(print_error) = error.print() {
+                eprintln!("{} {}", style::error_label(), print_error);
+                return ExitCode::FAILURE;
+            }
+            ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
+        }
+    }
+}
+
+fn run() -> Result<(), RunError> {
+    let args = std::env::args_os().skip(1).collect::<Vec<OsString>>();
+    if cli::is_root_help_request(&args) {
+        let targets = TargetRepository::load()?;
+        let command_names = cli::command_names();
+        let extra_target_ids = targets
+            .all()
+            .iter()
+            .filter(|target| !command_names.iter().any(|name| name == &target.id))
+            .map(|target| target.id.clone());
+        cli::command_with_extra_targets(extra_target_ids)
+            .print_help()
+            .map_err(AppError::from)?;
+        println!();
+        return Ok(());
+    }
+
+    let command =
+        Cli::try_parse_from(std::iter::once(OsString::from("cprof")).chain(args))?.command;
     match command {
-        RootCommand::Claude(args) => run_target_command("claude", args.command),
-        RootCommand::Codex(args) => run_target_command("codex", args.command),
-        RootCommand::Pack(args) => root::pack::run(args.save),
-        RootCommand::Unpack(args) => root::unpack::run(args.path, args.force),
-        RootCommand::Clean(args) => root::clean::run(args.force, args.extra_toml),
-        RootCommand::EditExtra(args) => root::edit_extra::run(args.editor),
-        RootCommand::Targets => root::targets::run(),
+        RootCommand::Claude(args) => run_target_command("claude", args.command)?,
+        RootCommand::Codex(args) => run_target_command("codex", args.command)?,
+        RootCommand::Pack(args) => {
+            let targets = TargetRepository::load()?;
+            root::pack::run(&targets, args.save)?;
+        }
+        RootCommand::Unpack(args) => {
+            let targets = TargetRepository::load()?;
+            root::unpack::run(&targets, args.path, args.force)?;
+        }
+        RootCommand::Clean(args) => {
+            let targets = TargetRepository::load()?;
+            root::clean::run(&targets, args.force, args.extra_toml)?;
+        }
+        RootCommand::EditExtra(args) => root::edit_extra::run(args.editor)?,
+        RootCommand::Targets => {
+            let targets = TargetRepository::load()?;
+            root::targets::run(&targets)?;
+        }
         RootCommand::External(args) => {
             let target_id = args.first().cloned().ok_or_else(|| {
                 cprof::error::AppError::Other("Missing target command".to_string())
             })?;
-            targets::get(&target_id)?;
+            let targets = TargetRepository::load()?;
+            targets.get(&target_id)?;
             let target_command = parse_target_command(&target_id, args.into_iter().skip(1))?;
-            run_target_command(&target_id, target_command)
+            run_target_command_with_repository(&targets, &target_id, target_command)?;
         }
     }
+    Ok(())
 }
 
 fn parse_target_command(
     target_id: &str,
     args: impl IntoIterator<Item = String>,
-) -> cprof::error::Result<TargetCommand> {
+) -> Result<TargetCommand, RunError> {
     let command_name = format!("cprof {target_id}");
     match TargetCli::try_parse_from(std::iter::once(command_name).chain(args)) {
         Ok(cli) => Ok(cli.command),
-        Err(error)
-            if matches!(
-                error.kind(),
-                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
-            ) =>
-        {
-            print!("{error}");
-            std::process::exit(0);
-        }
-        Err(error) => error.exit(),
+        Err(error) => Err(error.into()),
     }
 }
 
-fn run_target_command(target_id: &str, command: TargetCommand) -> cprof::error::Result<()> {
-    let target = targets::get(target_id)?;
+fn run_target_command(target_id: &str, command: TargetCommand) -> Result<(), RunError> {
+    let targets = TargetRepository::load()?;
+    run_target_command_with_repository(&targets, target_id, command)?;
+    Ok(())
+}
+
+fn run_target_command_with_repository(
+    targets: &TargetRepository,
+    target_id: &str,
+    command: TargetCommand,
+) -> cprof::error::Result<()> {
+    let target = targets.get(target_id)?;
     match command {
-        TargetCommand::Dir => target::dir::run(target),
-        TargetCommand::List => target::list::run(target),
-        TargetCommand::Which => target::which::run(target),
-        TargetCommand::Num => target::num::run(target),
+        TargetCommand::Dir => target::dir::run(&target),
+        TargetCommand::List => target::list::run(&target),
+        TargetCommand::Which => target::which::run(&target),
+        TargetCommand::Num => target::num::run(&target),
         TargetCommand::Create {
             name,
             copy_from,
             editor,
-        } => target::create::run(target, name, copy_from, editor),
+        } => target::create::run(&target, name, copy_from, editor),
         TargetCommand::Edit {
             name,
             filename,
             editor,
-        } => target::edit::run(target, name, filename, editor),
-        TargetCommand::Remove { names } => target::remove::run(target, names),
-        TargetCommand::Switch { name, force } => target::switch::run(target, name, force),
-        TargetCommand::Clean { force } => target::clean::run(target, force),
-        TargetCommand::Where { name, filename } => target::where_::run(target, name, filename),
-        TargetCommand::Pack(args) => target::pack::run(target, args.save),
-        TargetCommand::Unpack(args) => target::unpack::run(target, args.path, args.force),
+        } => target::edit::run(&target, name, filename, editor),
+        TargetCommand::Remove { names } => target::remove::run(&target, names),
+        TargetCommand::Switch { name, force } => target::switch::run(&target, name, force),
+        TargetCommand::Clean { force } => target::clean::run(&target, force),
+        TargetCommand::Where { name, filename } => target::where_::run(&target, name, filename),
+        TargetCommand::Pack(args) => target::pack::run(targets, &target, args.save),
+        TargetCommand::Unpack(args) => target::unpack::run(targets, &target, args.path, args.force),
     }
 }

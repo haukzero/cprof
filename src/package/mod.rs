@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use crate::error::{AppError, Result};
 use crate::profile::ProfileResource;
-use crate::targets::{self, ExternalTargetConfig};
+use crate::targets::{self, ExternalTargetConfig, TargetRepository};
 
 pub(crate) const DEFAULT_FILE_NAME: &str = "cprof.pkg";
 
@@ -43,6 +43,14 @@ impl PackageProfile {
 }
 
 pub fn encode(packages: &[TargetPackage]) -> Result<Vec<u8>> {
+    let targets = TargetRepository::load()?;
+    encode_with_repository(&targets, packages)
+}
+
+pub(crate) fn encode_with_repository(
+    targets: &TargetRepository,
+    packages: &[TargetPackage],
+) -> Result<Vec<u8>> {
     if packages.is_empty() {
         return Err(AppError::InvalidPackage("No profiles to pack".to_string()));
     }
@@ -51,7 +59,7 @@ pub fn encode(packages: &[TargetPackage]) -> Result<Vec<u8>> {
     let mut manifest_targets = Vec::with_capacity(packages.len());
     let mut payloads = Vec::new();
     for (target_index, package) in packages.iter().enumerate() {
-        let target = targets::get(&package.target)?;
+        let target = targets.get(&package.target)?;
         if !target_names.insert(package.target.as_str()) {
             return Err(AppError::InvalidPackage(format!(
                 "Duplicate target '{}'",
@@ -59,17 +67,17 @@ pub fn encode(packages: &[TargetPackage]) -> Result<Vec<u8>> {
             )));
         }
 
-        let encoded = profiles::encode(target, &package.profiles, target_index)?;
-        let target_config = if targets::is_builtin(target) {
+        let encoded = profiles::encode(&target, &package.profiles, target_index)?;
+        let target_config = if targets::is_builtin(&target) {
             None
         } else {
-            let config = targets::external_config_for(target)?.ok_or_else(|| {
+            let config = targets.external_config_for(&target).ok_or_else(|| {
                 AppError::InvalidPackage(format!(
                     "Missing configuration for external target '{}'",
                     target.id
                 ))
             })?;
-            Some(config.compact())
+            Some(config.clone().compact())
         };
         manifest_targets.push(manifest::ManifestTarget {
             target: package.target.clone(),
@@ -86,6 +94,14 @@ pub fn encode(packages: &[TargetPackage]) -> Result<Vec<u8>> {
 }
 
 pub fn decode(data: &[u8]) -> Result<Vec<TargetPackage>> {
+    let targets = TargetRepository::load()?;
+    decode_with_repository(&targets, data)
+}
+
+pub(crate) fn decode_with_repository(
+    targets: &TargetRepository,
+    data: &[u8],
+) -> Result<Vec<TargetPackage>> {
     let mut archive = archive::open(data)?;
     let manifest = manifest::decode(&archive::read_manifest(&mut archive)?)?;
     if manifest.targets.is_empty() {
@@ -105,9 +121,9 @@ pub fn decode(data: &[u8]) -> Result<Vec<TargetPackage>> {
                     target.id, manifest_target.target
                 )));
             }
-            Box::leak(Box::new(target))
+            std::sync::Arc::new(target)
         } else {
-            targets::get(&manifest_target.target)?
+            targets.get(&manifest_target.target)?
         };
         if !target_names.insert(manifest_target.target.clone()) {
             return Err(AppError::InvalidPackage(format!(
@@ -115,7 +131,7 @@ pub fn decode(data: &[u8]) -> Result<Vec<TargetPackage>> {
                 manifest_target.target
             )));
         }
-        let profiles = profiles::decode(target, target_index, manifest_target, &mut archive)?;
+        let profiles = profiles::decode(&target, target_index, manifest_target, &mut archive)?;
         packages.push(TargetPackage {
             target: manifest_target.target.clone(),
             profiles,

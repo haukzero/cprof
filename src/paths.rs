@@ -2,7 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 
 /// Validate a value that is used as one directory component below cprof's
 /// profile root.
@@ -13,7 +13,26 @@ pub(crate) fn validate_target_id(value: &str) -> Result<()> {
 /// Validate a resource's stored filename. Resource files always live directly
 /// in a profile directory; accepting a path here would cross that boundary.
 pub(crate) fn validate_filename(value: &str) -> Result<()> {
+    if is_windows_reserved_component(value) {
+        return Err(AppError::InvalidFilename(value.to_string()));
+    }
     validate_safe_component(value).map_err(|()| AppError::InvalidFilename(value.to_string()))
+}
+
+fn is_windows_reserved_component(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .trim_end_matches(' ');
+    let upper = stem.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || upper
+            .strip_prefix("COM")
+            .or_else(|| upper.strip_prefix("LPT"))
+            .is_some_and(|number| {
+                matches!(number, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
 }
 
 pub(crate) fn validate_safe_component(value: &str) -> std::result::Result<(), ()> {
@@ -52,7 +71,9 @@ pub(crate) fn relative_active_path(value: &str) -> Result<PathBuf> {
         match component {
             "" | "." => {}
             ".." => return Err(AppError::InvalidActivePath(value.to_string())),
-            component if has_windows_prefix(component) => {
+            component
+                if has_windows_prefix(component) || is_windows_reserved_component(component) =>
+            {
                 return Err(AppError::InvalidActivePath(value.to_string()));
             }
             component => normalized.push(component),
@@ -86,7 +107,12 @@ pub(crate) fn absolute_active_path(value: &str) -> Result<PathBuf> {
             Component::ParentDir => {
                 return Err(AppError::InvalidActivePath(value.to_string()));
             }
-            Component::Normal(component) => normalized.push(component),
+            Component::Normal(component) => {
+                if is_windows_reserved_component(&component.to_string_lossy()) {
+                    return Err(AppError::InvalidActivePath(value.to_string()));
+                }
+                normalized.push(component);
+            }
         }
     }
     if normalized.parent().is_none() || normalized.file_name().is_none() {
@@ -139,7 +165,7 @@ pub(crate) fn join_storage_under(root: &Path, relative: &Path) -> Result<PathBuf
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+        Err(error) => return Err(AppError::io(&path, error)),
     }
     Ok(path)
 }
@@ -161,7 +187,7 @@ fn ensure_active_entry(path: &Path) -> Result<()> {
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+        Err(error) => return Err(AppError::io(path, error)),
     }
     Ok(())
 }
@@ -240,7 +266,7 @@ fn resolve_existing(path: &Path) -> Result<PathBuf> {
     loop {
         match fs::symlink_metadata(&current) {
             Ok(_) => {
-                let mut resolved = fs::canonicalize(&current)?;
+                let mut resolved = fs::canonicalize(&current).with_path(&current)?;
                 for component in missing.iter().rev() {
                     resolved.push(component);
                 }
@@ -256,7 +282,7 @@ fn resolve_existing(path: &Path) -> Result<PathBuf> {
                     .ok_or_else(|| AppError::UnsafePath(path.display().to_string()))?
                     .to_path_buf();
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(AppError::io(&current, error)),
         }
     }
 }
@@ -303,13 +329,33 @@ mod tests {
     }
 
     #[test]
+    fn filenames_reject_windows_reserved_names_on_every_platform() {
+        for value in [
+            "CON", "con.txt", "PRN.json", "AUX", "NUL", "COM1.log", "LPT9",
+        ] {
+            assert!(validate_filename(value).is_err(), "{value:?}");
+        }
+        for value in ["console", "COM0", "COM10", "LPT10.json"] {
+            assert!(validate_filename(value).is_ok(), "{value:?}");
+        }
+    }
+
+    #[test]
     fn relative_paths_normalize_but_never_traverse() {
         assert_eq!(
             relative_active_path("./.config//demo\\settings.json").unwrap(),
             PathBuf::from(".config/demo/settings.json")
         );
         for value in [
-            "", ".", "..", "../x", "a/../x", "/tmp/x", "\\tmp\\x", "C:\\x",
+            "",
+            ".",
+            "..",
+            "../x",
+            "a/../x",
+            "/tmp/x",
+            "\\tmp\\x",
+            "C:\\x",
+            ".config/CON/settings.json",
         ] {
             assert!(relative_active_path(value).is_err(), "{value:?}");
         }

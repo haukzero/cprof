@@ -27,12 +27,21 @@ fn test_home() -> &'static PathBuf {
 }
 
 fn claude() -> &'static targets::TargetSpec {
-    let _ = test_home();
-    targets::get("claude").unwrap()
+    target("claude")
 }
 fn codex() -> &'static targets::TargetSpec {
+    target("codex")
+}
+
+fn target(id: &str) -> &'static targets::TargetSpec {
     let _ = test_home();
-    targets::get("codex").unwrap()
+    static TARGETS: OnceLock<targets::TargetRepository> = OnceLock::new();
+    TARGETS
+        .get_or_init(|| targets::TargetRepository::load().unwrap())
+        .all()
+        .iter()
+        .find(|target| target.id == id)
+        .expect("built-in target")
 }
 
 fn symlink_creation_available() -> bool {
@@ -165,7 +174,7 @@ fn codex_profile_has_two_resources_and_switches_together() {
         activation::active_name(target).unwrap().as_deref(),
         Some(name.as_str())
     );
-    for resource in target.resources {
+    for resource in &target.resources {
         let link = config::active_resource(target, resource).unwrap();
         assert!(link.is_symlink());
         assert!(link.exists());
@@ -225,6 +234,8 @@ fn profile_name_validation() {
     let target = claude();
     assert!(profile::create(target, "../escape", None).is_err());
     assert!(profile::create(target, "", None).is_err());
+    assert!(profile::create(target, "literal*star", None).is_err());
+    assert!(profile::create(target, "literal?mark", None).is_err());
 }
 
 #[test]
@@ -263,7 +274,7 @@ fn copied_profile_preserves_resources() {
 
     profile::create(target, &destination, Some(&source)).unwrap();
 
-    for resource in target.resources {
+    for resource in &target.resources {
         let source_path = config::profile_resource(target, &source, resource).unwrap();
         let destination_path = config::profile_resource(target, &destination, resource).unwrap();
         assert_eq!(

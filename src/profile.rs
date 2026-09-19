@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexSet;
 
 use crate::config;
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 use crate::fs_util;
 use crate::paths;
 use crate::targets::{ResourceSpec, TargetSpec};
@@ -18,12 +18,12 @@ pub struct ProfileInfo {
 
 #[derive(Debug, Clone)]
 pub struct ProfileResource {
-    pub spec: &'static ResourceSpec,
+    pub spec: ResourceSpec,
     pub content: Vec<u8>,
 }
 
 pub fn validate_name(name: &str) -> Result<()> {
-    if paths::validate_safe_component(name).is_err() {
+    if name.contains(['*', '?']) || paths::validate_safe_component(name).is_err() {
         return Err(AppError::InvalidProfileName(name.to_string()));
     }
     Ok(())
@@ -41,7 +41,7 @@ pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
         return Ok(false);
     }
 
-    for spec in target.resources {
+    for spec in &target.resources {
         let path = config::profile_resource(target, name, spec)?;
         if !path.is_file() {
             if spec.required {
@@ -49,7 +49,7 @@ pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
             }
             continue;
         }
-        if (spec.validate)(&fs::read(path)?).is_err() {
+        if (spec.validate)(&fs::read(&path).with_path(&path)?).is_err() {
             return Ok(false);
         }
     }
@@ -75,9 +75,9 @@ fn names(target: &TargetSpec) -> Result<Vec<String>> {
     }
 
     let mut names = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
+    for entry in fs::read_dir(&dir).with_path(&dir)? {
+        let entry = entry.with_path(&dir)?;
+        if !entry.file_type().with_path(&entry.path())?.is_dir() {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -181,10 +181,13 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
         if let Some(source_dir) = &source_dir {
             let source_path = resource_path_in(source_dir, resource)?;
             if source_path.exists() {
-                fs_util::write_file(&destination, &fs::read(source_path)?)?;
+                fs_util::write_file(
+                    &destination,
+                    &fs::read(&source_path).with_path(&source_path)?,
+                )?;
             }
         } else {
-            write_resource(&destination, resource, resource.template)?;
+            write_resource(&destination, resource, &resource.template)?;
         }
         Ok::<(), AppError>(())
     });
@@ -205,7 +208,7 @@ pub fn delete(target: &TargetSpec, name: &str) -> Result<()> {
     if !dir.is_dir() {
         return Err(AppError::ProfileNotFound(name.to_string()));
     }
-    fs::remove_dir_all(dir)?;
+    fs::remove_dir_all(&dir).with_path(&dir)?;
     Ok(())
 }
 
@@ -259,14 +262,14 @@ pub(crate) fn stage_validated_replace(
     write_resources(&staging, resources)
 }
 
-pub fn read(target: &'static TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
+pub fn read(target: &TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
     validate_name(name)?;
     if !exists(target, name)? {
         return Err(AppError::ProfileNotFound(name.to_string()));
     }
 
     let mut resources = Vec::new();
-    for spec in target.resources {
+    for spec in &target.resources {
         let path = config::profile_resource(target, name, spec)?;
         if !path.exists() {
             if spec.required {
@@ -274,9 +277,12 @@ pub fn read(target: &'static TargetSpec, name: &str) -> Result<Vec<ProfileResour
             }
             continue;
         }
-        let content = fs::read(path)?;
+        let content = fs::read(&path).with_path(&path)?;
         (spec.validate)(&content)?;
-        resources.push(ProfileResource { spec, content });
+        resources.push(ProfileResource {
+            spec: spec.clone(),
+            content,
+        });
     }
     Ok(resources)
 }
@@ -287,21 +293,21 @@ pub fn resource_path(target: &TargetSpec, name: &str, resource: &ResourceSpec) -
 }
 
 pub fn validate_resource_file(path: &Path, resource: &ResourceSpec) -> Result<()> {
-    (resource.validate)(&fs::read(path)?)?;
+    (resource.validate)(&fs::read(path).with_path(path)?)?;
     Ok(())
 }
 
 fn write_resources(dir: &Path, resources: &[ProfileResource]) -> Result<()> {
     for resource in resources {
-        let path = resource_path_in(dir, resource.spec)?;
+        let path = resource_path_in(dir, &resource.spec)?;
         fs_util::write_file(&path, &resource.content)?;
     }
     Ok(())
 }
 
 fn resource_path_in(dir: &Path, resource: &ResourceSpec) -> Result<PathBuf> {
-    paths::validate_filename(resource.filename)?;
-    paths::join_storage_under(dir, Path::new(resource.filename))
+    paths::validate_filename(&resource.filename)?;
+    paths::join_storage_under(dir, Path::new(&resource.filename))
 }
 
 fn validate_resources(
@@ -311,8 +317,8 @@ fn validate_resources(
 ) -> Result<()> {
     let mut keys = HashSet::new();
     for resource in resources {
-        let expected = target.resource(resource.spec.key)?;
-        if expected.filename != resource.spec.filename || !keys.insert(resource.spec.key) {
+        let expected = target.resource(&resource.spec.key)?;
+        if expected.filename != resource.spec.filename || !keys.insert(resource.spec.key.clone()) {
             return Err(AppError::InvalidResource(format!(
                 "Invalid resource '{}' in profile '{name}'",
                 resource.spec.key
@@ -323,7 +329,7 @@ fn validate_resources(
     if target
         .resources
         .iter()
-        .any(|spec| spec.required && !keys.contains(spec.key))
+        .any(|spec| spec.required && !keys.contains(&spec.key))
     {
         return Err(AppError::IncompleteProfile(name.to_string()));
     }

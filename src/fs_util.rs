@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -35,13 +35,13 @@ impl PathTransaction {
 
     pub(crate) fn stage_directory(&mut self, destination: &Path, replace: bool) -> Result<PathBuf> {
         let parent = parent(destination)?;
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent).with_path(parent)?;
         let staging = loop {
             let path = temporary_sibling(destination, "stage");
             match fs::create_dir(&path) {
                 Ok(()) => break path,
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(AppError::io(&path, error)),
             }
         };
         self.add_operation(destination, staging.clone(), replace)?;
@@ -179,7 +179,7 @@ impl PathOperation {
             if let Err(error) = fs::rename(&self.destination, &self.rollback) {
                 return match path_exists(&self.destination) {
                     Ok(false) => Err(transaction_conflict(&self.destination, true)),
-                    _ => Err(error.into()),
+                    _ => Err(AppError::io(&self.destination, error)),
                 };
             }
             self.backed_up = true;
@@ -189,7 +189,7 @@ impl PathOperation {
                 Ok(exists) if exists != self.replace => {
                     Err(transaction_conflict(&self.destination, self.replace))
                 }
-                _ => Err(error.into()),
+                _ => Err(AppError::io(&self.destination, error)),
             };
         }
         self.applied = true;
@@ -207,7 +207,7 @@ impl PathOperation {
         if self.backed_up {
             match fs::rename(&self.rollback, &self.destination) {
                 Ok(()) => self.backed_up = false,
-                Err(error) => errors.push(error.into()),
+                Err(error) => errors.push(AppError::io(&self.destination, error)),
             }
         }
         if let Err(error) = remove_any_if_exists(&self.staging) {
@@ -232,8 +232,8 @@ pub(crate) fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
 }
 
 pub fn write_file(path: &Path, content: &[u8]) -> Result<()> {
-    let mut file = File::create(path)?;
-    write_and_sync(&mut file, content)?;
+    let mut file = File::create(path).with_path(path)?;
+    write_and_sync(&mut file, content).with_path(path)?;
     Ok(())
 }
 
@@ -248,25 +248,26 @@ fn write_and_flush(file: &mut File, content: &[u8]) -> io::Result<()> {
 }
 
 fn create_staged_file(destination: &Path, label: &str, content: &[u8]) -> Result<PathBuf> {
-    fs::create_dir_all(parent(destination)?)?;
+    let parent = parent(destination)?;
+    fs::create_dir_all(parent).with_path(parent)?;
     loop {
         let path = temporary_sibling(destination, label);
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut file) => {
                 if let Err(error) = write_and_flush(&mut file, content) {
                     let _ = fs::remove_file(&path);
-                    return Err(error.into());
+                    return Err(AppError::io(&path, error));
                 }
                 if let Ok(metadata) = fs::metadata(destination)
                     && let Err(error) = fs::set_permissions(&path, metadata.permissions())
                 {
                     let _ = fs::remove_file(&path);
-                    return Err(error.into());
+                    return Err(AppError::io(&path, error));
                 }
                 return Ok(path);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(AppError::io(&path, error)),
         }
     }
 }
@@ -310,33 +311,40 @@ fn transaction_conflict(path: &Path, expected_existing: bool) -> AppError {
 fn remove_any_if_exists(path: &Path) -> Result<()> {
     match remove_any(path) {
         Ok(()) => Ok(()),
-        Err(AppError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.is_io_kind(io::ErrorKind::NotFound) => Ok(()),
         Err(error) => Err(error),
     }
 }
 
 fn remove_any(path: &Path) -> Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
+    let metadata = fs::symlink_metadata(path).with_path(path)?;
     if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
-        fs::remove_dir_all(path)?;
+        fs::remove_dir_all(path).with_path(path)?;
     } else {
-        fs::remove_file(path)?;
+        fs::remove_file(path).with_path(path)?;
     }
     Ok(())
 }
 
 fn sync_path(path: &Path) -> Result<()> {
     #[cfg(windows)]
-    if fs::metadata(path)?.is_dir() {
+    if fs::metadata(path).with_path(path)?.is_dir() {
         return Ok(());
     }
-    File::open(path)?.sync_all()?;
+    File::open(path)
+        .with_path(path)?
+        .sync_all()
+        .with_path(path)?;
     Ok(())
 }
 
 #[cfg(unix)]
 fn sync_parent(path: &Path) -> Result<()> {
-    File::open(parent(path)?)?.sync_all()?;
+    let parent = parent(path)?;
+    File::open(parent)
+        .with_path(parent)?
+        .sync_all()
+        .with_path(parent)?;
     Ok(())
 }
 
@@ -381,13 +389,13 @@ fn errors_result(errors: Vec<AppError>) -> Result<()> {
 
 #[cfg(unix)]
 pub fn create_symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(target, link)?;
+    std::os::unix::fs::symlink(target, link).with_path(link)?;
     Ok(())
 }
 
 #[cfg(windows)]
 pub fn create_symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_file(target, link)?;
+    std::os::windows::fs::symlink_file(target, link).with_path(link)?;
     Ok(())
 }
 

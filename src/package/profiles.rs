@@ -15,7 +15,7 @@ pub(super) struct Encoded {
 }
 
 pub(super) fn encode(
-    target: &'static TargetSpec,
+    target: &TargetSpec,
     profiles: &[PackageProfile],
     target_index: usize,
 ) -> Result<Encoded> {
@@ -51,7 +51,7 @@ pub(super) fn encode(
                 )));
             };
             let expected = &target.resources[resource_index];
-            if expected.filename != resource.spec.filename || !keys.insert(expected.key) {
+            if expected.filename != resource.spec.filename || !keys.insert(expected.key.clone()) {
                 return Err(AppError::InvalidPackage(format!(
                     "Invalid resource '{}' in profile '{}'",
                     resource.spec.key, profile.name
@@ -67,7 +67,7 @@ pub(super) fn encode(
         if target
             .resources
             .iter()
-            .any(|spec| spec.required && !keys.contains(spec.key))
+            .any(|spec| spec.required && !keys.contains(&spec.key))
         {
             return Err(AppError::IncompleteProfile(profile.name.clone()));
         }
@@ -83,7 +83,7 @@ pub(super) fn encode(
 }
 
 pub(super) fn decode<R: Read + Seek>(
-    target: &'static TargetSpec,
+    target: &TargetSpec,
     target_index: usize,
     manifest_target: &manifest::ManifestTarget,
     archive: &mut ZipArchive<R>,
@@ -122,7 +122,10 @@ pub(super) fn decode<R: Read + Seek>(
             let mut content = Vec::new();
             file.read_to_end(&mut content)?;
             (spec.validate)(&content)?;
-            resources.push(ProfileResource { spec, content });
+            resources.push(ProfileResource {
+                spec: spec.clone(),
+                content,
+            });
         }
         if target
             .resources

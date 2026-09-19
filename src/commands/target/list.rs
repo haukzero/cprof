@@ -4,7 +4,7 @@ use crate::profile;
 use crate::style;
 use crate::targets::TargetSpec;
 
-pub fn run(target: &'static TargetSpec) -> Result<()> {
+pub fn run(target: &TargetSpec) -> Result<()> {
     let profiles = profile::list(target)?;
     let active = activation::active_name(target)?;
     if profiles.is_empty() {

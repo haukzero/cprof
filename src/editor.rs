@@ -3,7 +3,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 use crate::fs_util::PathTransaction;
 
 pub struct EditSession {
@@ -24,7 +24,7 @@ impl EditSession {
     pub fn edit(&mut self, path: &Path, validate: impl FnOnce(&[u8]) -> Result<()>) -> Result<()> {
         let before = match fs::read(path) {
             Ok(content) => content,
-            Err(error) => return Err(self.abort(error.into())),
+            Err(error) => return Err(self.abort(AppError::io(path, error))),
         };
         self.edit_content(path, before, true, validate)
     }
@@ -38,7 +38,7 @@ impl EditSession {
         let (before, replace) = match fs::read(path) {
             Ok(content) => (content, true),
             Err(error) if error.kind() == io::ErrorKind::NotFound => (default.to_vec(), false),
-            Err(error) => return Err(self.abort(error.into())),
+            Err(error) => return Err(self.abort(AppError::io(path, error))),
         };
         self.edit_content(path, before, replace, validate)
     }
@@ -80,7 +80,7 @@ impl EditSession {
             .expect("edit transaction is active")
             .stage_file(path, "edit", before, replace)?;
         open_editor(&self.editor, &draft)?;
-        let after = fs::read(&draft)?;
+        let after = fs::read(&draft).with_path(&draft)?;
         if replace && after == before {
             self.transaction
                 .as_mut()

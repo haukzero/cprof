@@ -4,42 +4,44 @@ use cprof::config;
 use cprof::error::{AppError, Result};
 use cprof::targets::{ResourceSpec, TargetSpec};
 
-const TARGET: TargetSpec = TargetSpec {
-    id: "demo",
-    resources: &[],
-};
+fn target() -> TargetSpec {
+    TargetSpec {
+        id: "demo".to_string(),
+        resources: Vec::new(),
+    }
+}
 
 fn resource(active_path: Option<&'static str>) -> ResourceSpec {
     ResourceSpec {
-        key: "settings",
-        filename: "settings.json",
-        active_path,
+        key: "settings".to_string(),
+        filename: "settings.json".to_string(),
+        active_path: active_path.map(str::to_string),
         absolute_active_path: None,
         required: true,
-        template: b"",
+        template: Vec::new(),
         validate: |_| Ok(()),
     }
 }
 
 fn assert_invalid_component(value: &'static str) {
-    let target = TargetSpec {
-        id: value,
-        ..TARGET
+    let invalid_target = TargetSpec {
+        id: value.to_string(),
+        ..target()
     };
     assert!(
         matches!(
-            config::profiles_dir(&target),
+            config::profiles_dir(&invalid_target),
             Err(AppError::InvalidTargetId(_))
         ),
         "target id: {value:?}"
     );
     let spec = ResourceSpec {
-        filename: value,
+        filename: value.to_string(),
         ..resource(Some(".demo/settings"))
     };
     assert!(
         matches!(
-            config::profile_resource(&TARGET, "test", &spec),
+            config::profile_resource(&target(), "test", &spec),
             Err(AppError::InvalidFilename(_))
         ),
         "filename: {value:?}"
@@ -67,7 +69,7 @@ fn windows_prefixes_are_rejected_on_every_platform() {
         assert_invalid_component(value);
         assert!(
             matches!(
-                TARGET.active_path(home.path(), &resource(Some(value))),
+                target().active_path(home.path(), &resource(Some(value))),
                 Err(AppError::InvalidActivePath(_))
             ),
             "active_path: {value:?}"
@@ -91,7 +93,7 @@ fn relative_active_paths_reject_roots_traversal_and_control_characters() {
     ] {
         assert!(
             matches!(
-                TARGET.active_path(home.path(), &resource(Some(value))),
+                target().active_path(home.path(), &resource(Some(value))),
                 Err(AppError::InvalidActivePath(_))
             ),
             "active_path: {value:?}"
@@ -102,7 +104,7 @@ fn relative_active_paths_reject_roots_traversal_and_control_characters() {
 #[test]
 fn relative_active_paths_normalize_both_separator_styles() -> Result<()> {
     let home = tempfile::tempdir()?;
-    let actual = TARGET.active_path(
+    let actual = target().active_path(
         home.path(),
         &resource(Some(r"./.config//demo\settings.json")),
     )?;
@@ -124,12 +126,12 @@ fn invalid_absolute_paths_return_errors() {
         r"C:\a\..\settings",
     ] {
         let spec = ResourceSpec {
-            absolute_active_path: Some(value),
+            absolute_active_path: Some(value.to_string()),
             ..resource(None)
         };
         assert!(
             matches!(
-                TARGET.active_path(home.path(), &spec),
+                target().active_path(home.path(), &spec),
                 Err(AppError::InvalidActivePath(_))
             ),
             "absolute_active_path: {value:?}"
@@ -141,7 +143,7 @@ fn invalid_absolute_paths_return_errors() {
 fn an_active_path_is_required() {
     let home = tempfile::tempdir().unwrap();
     assert!(matches!(
-        TARGET.active_path(home.path(), &resource(None)),
+        target().active_path(home.path(), &resource(None)),
         Err(AppError::InvalidActivePath(_))
     ));
 }
@@ -149,7 +151,7 @@ fn an_active_path_is_required() {
 #[test]
 fn home_must_be_absolute() {
     assert!(matches!(
-        TARGET.active_path(&PathBuf::from("relative-home"), &resource(Some("settings"))),
+        target().active_path(&PathBuf::from("relative-home"), &resource(Some("settings"))),
         Err(AppError::UnsafePath(_))
     ));
 }

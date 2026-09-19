@@ -16,7 +16,7 @@ struct TableColumn<T> {
 }
 
 impl TargetRow {
-    fn new(target: &'static targets::TargetSpec) -> Result<Self> {
+    fn new(target: &targets::TargetSpec) -> Result<Self> {
         let kind = if targets::is_builtin(target) {
             "built-in"
         } else {
@@ -71,8 +71,9 @@ const TARGET_COLUMNS: &[TableColumn<TargetRow>] = &[
     },
 ];
 
-pub fn run() -> Result<()> {
-    let rows = targets::all()?
+pub fn run(targets: &targets::TargetRepository) -> Result<()> {
+    let rows = targets
+        .all()
         .iter()
         .map(|target| TargetRow::new(target))
         .collect::<Result<Vec<_>>>()?;

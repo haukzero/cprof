@@ -17,12 +17,10 @@ pub fn is_elevated_child() -> bool {
 
 #[cfg(windows)]
 pub fn is_privilege_error(error: &AppError) -> bool {
-    matches!(
-        error,
-        AppError::Io(io)
-            if io.raw_os_error()
-                == Some(windows_sys::Win32::Foundation::ERROR_PRIVILEGE_NOT_HELD as i32)
-    )
+    error.io_source().is_some_and(|source| {
+        source.raw_os_error()
+            == Some(windows_sys::Win32::Foundation::ERROR_PRIVILEGE_NOT_HELD as i32)
+    })
 }
 
 #[cfg(not(windows))]

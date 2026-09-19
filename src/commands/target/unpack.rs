@@ -1,17 +1,23 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 use crate::fs_util::PathTransaction;
 use crate::package;
 use crate::profile;
 use crate::prompt;
 use crate::style;
-use crate::targets::{self, ExternalTargetConfig, TargetSpec};
+use crate::targets::{self, ExternalTargetConfig, TargetRepository, TargetSpec};
 
-pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Result<()> {
-    let packages = read_package(path)?;
+pub fn run(
+    targets: &TargetRepository,
+    target: &TargetSpec,
+    path: Option<String>,
+    force: bool,
+) -> Result<()> {
+    let packages = read_package(targets, path)?;
     let package = packages
         .into_iter()
         .find(|package| package.target == target.id)
@@ -19,9 +25,9 @@ pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Re
             AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
         })?;
     let (target_configs, configs_changed) =
-        merge_target_configs(std::slice::from_ref(&package), force)?;
-    let target = resolve_target(&package, &target_configs)?;
-    let profiles = remap_profiles(target, package.profiles)?;
+        merge_target_configs(targets, std::slice::from_ref(&package), force)?;
+    let target = resolve_target(targets, &package, &target_configs)?;
+    let profiles = remap_profiles(&target, package.profiles)?;
     let plan = prepare_unpack(target, profiles, force)?;
     commit_unpack(
         std::slice::from_ref(&plan),
@@ -33,7 +39,7 @@ pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Re
 }
 
 pub(crate) struct UnpackPlan {
-    target: &'static TargetSpec,
+    target: Arc<TargetSpec>,
     profiles: Vec<PlannedProfile>,
     skipped: usize,
 }
@@ -48,7 +54,7 @@ impl UnpackPlan {
         for planned in &self.profiles {
             profile::stage_validated_replace(
                 transaction,
-                self.target,
+                &self.target,
                 &planned.package.name,
                 &planned.package.resources,
                 planned.overwrite,
@@ -70,7 +76,7 @@ impl UnpackPlan {
 }
 
 pub(crate) fn prepare_unpack(
-    target: &'static TargetSpec,
+    target: Arc<TargetSpec>,
     profiles: Vec<package::PackageProfile>,
     force: bool,
 ) -> Result<UnpackPlan> {
@@ -81,7 +87,7 @@ pub(crate) fn prepare_unpack(
     let mut planned = Vec::with_capacity(profiles.len());
     let mut skipped = 0;
     for package_profile in profiles {
-        let exists = profile::exists(target, &package_profile.name)?;
+        let exists = profile::exists(&target, &package_profile.name)?;
         if exists {
             println!(
                 "{}",
@@ -98,7 +104,7 @@ pub(crate) fn prepare_unpack(
             }
         }
         profile::validate_replacement(
-            target,
+            &target,
             &package_profile.name,
             &package_profile.resources,
             exists,
@@ -135,6 +141,7 @@ pub(crate) fn commit_unpack(
 }
 
 pub(crate) fn merge_target_configs(
+    targets: &TargetRepository,
     packages: &[package::TargetPackage],
     force: bool,
 ) -> Result<(BTreeMap<String, ExternalTargetConfig>, bool)> {
@@ -142,7 +149,7 @@ pub(crate) fn merge_target_configs(
         .iter()
         .filter_map(|package| package.target_config.clone())
         .collect::<Vec<_>>();
-    let local = targets::read_external_configs()?;
+    let local = targets.external_configs().clone();
     let merged = targets::merge_external_configs(local.clone(), &packaged, |prompt| {
         should_use_packaged(prompt, force)
     })?;
@@ -150,7 +157,10 @@ pub(crate) fn merge_target_configs(
     Ok((merged, changed))
 }
 
-pub(crate) fn read_package(path: Option<String>) -> Result<Vec<package::TargetPackage>> {
+pub(crate) fn read_package(
+    targets: &TargetRepository,
+    path: Option<String>,
+) -> Result<Vec<package::TargetPackage>> {
     let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     let path = Path::new(&path);
     if !path.exists() {
@@ -159,37 +169,36 @@ pub(crate) fn read_package(path: Option<String>) -> Result<Vec<package::TargetPa
             path.display()
         )));
     }
-    package::decode(&fs::read(path)?)
+    package::decode_with_repository(targets, &fs::read(path).with_path(path)?)
 }
 
 fn effective_target_from_config(
     package: &package::TargetPackage,
     configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
-) -> Result<&'static TargetSpec> {
+) -> Result<Arc<TargetSpec>> {
     let config = targets::find_external_config(configs, &package.target).ok_or_else(|| {
         AppError::InvalidPackage(format!(
             "Merged configuration does not contain target '{}'",
             package.target
         ))
     })?;
-    Ok(Box::leak(Box::new(targets::spec_from_external_config(
-        config,
-    )?)))
+    Ok(Arc::new(targets::spec_from_external_config(config)?))
 }
 
 pub(crate) fn resolve_target(
+    targets: &TargetRepository,
     package: &package::TargetPackage,
     configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
-) -> Result<&'static TargetSpec> {
+) -> Result<Arc<TargetSpec>> {
     if package.target_config.is_some() {
         effective_target_from_config(package, configs)
     } else {
-        targets::get(&package.target)
+        targets.get(&package.target)
     }
 }
 
 pub(crate) fn remap_profiles(
-    target: &'static TargetSpec,
+    target: &TargetSpec,
     profiles: Vec<package::PackageProfile>,
 ) -> Result<Vec<package::PackageProfile>> {
     profiles
@@ -200,19 +209,19 @@ pub(crate) fn remap_profiles(
                 .resources
                 .into_iter()
                 .map(|resource| {
-                    let spec = target.resource(resource.spec.key)?;
-                    present.insert(spec.key);
+                    let spec = target.resource(&resource.spec.key)?;
+                    present.insert(spec.key.clone());
                     Ok(profile::ProfileResource {
-                        spec,
+                        spec: spec.clone(),
                         content: resource.content,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            for spec in target.resources {
-                if spec.required && !present.contains(spec.key) {
+            for spec in &target.resources {
+                if spec.required && !present.contains(&spec.key) {
                     resources.push(profile::ProfileResource {
-                        spec,
-                        content: spec.template.to_vec(),
+                        spec: spec.clone(),
+                        content: spec.template.clone(),
                     });
                 }
             }

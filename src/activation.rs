@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config;
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 use crate::fs_util;
 use crate::profile;
 use crate::targets::{ResourceSpec, TargetSpec};
@@ -16,16 +16,16 @@ pub enum Status {
     Unmanaged,
 }
 
-pub fn status(target: &'static TargetSpec) -> Result<Status> {
+pub fn status(target: &TargetSpec) -> Result<Status> {
     let mut linked_profiles = Vec::new();
     let mut found = false;
 
-    for resource in target.resources {
+    for resource in &target.resources {
         let link = config::active_resource(target, resource)?;
         let metadata = match fs::symlink_metadata(&link) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(AppError::io(&link, error)),
         };
         found = true;
         if !metadata.file_type().is_symlink() {
@@ -60,14 +60,14 @@ pub fn status(target: &'static TargetSpec) -> Result<Status> {
     Ok(Status::Active(name.clone()))
 }
 
-pub fn active_name(target: &'static TargetSpec) -> Result<Option<String>> {
+pub fn active_name(target: &TargetSpec) -> Result<Option<String>> {
     Ok(match status(target)? {
         Status::Active(name) => Some(name),
         _ => None,
     })
 }
 
-pub fn switch(target: &'static TargetSpec, name: &str, force: bool) -> Result<bool> {
+pub fn switch(target: &TargetSpec, name: &str, force: bool) -> Result<bool> {
     profile::validate_name(name)?;
     if !profile::is_complete(target, name)? {
         return Err(AppError::IncompleteProfile(name.to_string()));
@@ -80,12 +80,12 @@ pub fn switch(target: &'static TargetSpec, name: &str, force: bool) -> Result<bo
     Ok(false)
 }
 
-pub fn remove_profile_links(target: &'static TargetSpec, name: &str) -> Result<bool> {
+pub fn remove_profile_links(target: &TargetSpec, name: &str) -> Result<bool> {
     let mut removed = false;
-    for resource in target.resources {
+    for resource in &target.resources {
         let link = config::active_resource(target, resource)?;
         if managed_link_profile(target, resource, &link)?.as_deref() == Some(name) {
-            fs::remove_file(link)?;
+            fs::remove_file(&link).with_path(&link)?;
             removed = true;
         }
     }
@@ -93,20 +93,20 @@ pub fn remove_profile_links(target: &'static TargetSpec, name: &str) -> Result<b
 }
 
 fn managed_link_profile(
-    target: &'static TargetSpec,
+    target: &TargetSpec,
     resource: &ResourceSpec,
     link: &Path,
 ) -> Result<Option<String>> {
     let metadata = match fs::symlink_metadata(link) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
+        Err(error) => return Err(AppError::io(link, error)),
     };
     if !metadata.file_type().is_symlink() {
         return Ok(None);
     }
 
-    let raw_target = fs::read_link(link)?;
+    let raw_target = fs::read_link(link).with_path(link)?;
     let target_path = if raw_target.is_absolute() {
         raw_target
     } else {
@@ -122,7 +122,7 @@ fn managed_link_profile(
     else {
         return Ok(None);
     };
-    if filename.as_os_str() != resource.filename {
+    if filename.as_os_str() != resource.filename.as_str() {
         return Ok(None);
     }
 
@@ -135,12 +135,16 @@ struct LinkTransaction {
 }
 
 impl LinkTransaction {
-    fn prepare(target: &'static TargetSpec, profile: &str, force: bool) -> Result<Self> {
+    fn prepare(target: &TargetSpec, profile: &str, force: bool) -> Result<Self> {
         let mut operations = Vec::with_capacity(target.resources.len());
         for (index, resource) in target.resources.iter().enumerate() {
             let link = config::active_resource(target, resource)?;
             let source = config::profile_resource(target, profile, resource)?;
-            let had_existing = fs::symlink_metadata(&link).is_ok();
+            let had_existing = match fs::symlink_metadata(&link) {
+                Ok(_) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => return Err(AppError::io(&link, error)),
+            };
             if had_existing && managed_link_profile(target, resource, &link)?.is_none() && !force {
                 return Err(AppError::UnmanagedActivePath(link.display().to_string()));
             }
@@ -215,7 +219,7 @@ impl LinkOperation {
 
     fn create_staging(&self) -> Result<()> {
         if let Some(parent) = self.link.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).with_path(parent)?;
         }
         let _ = fs::remove_file(&self.staging);
         let _ = fs::remove_file(&self.rollback);
@@ -227,7 +231,7 @@ impl LinkOperation {
 
     fn apply(&self) -> Result<()> {
         if self.had_existing {
-            fs::rename(&self.link, &self.rollback)?;
+            fs::rename(&self.link, &self.rollback).with_path(&self.link)?;
         }
         if self.source.is_some()
             && let Err(error) = fs::rename(&self.staging, &self.link)
@@ -235,7 +239,7 @@ impl LinkOperation {
             if self.had_existing {
                 let _ = fs::rename(&self.rollback, &self.link);
             }
-            return Err(error.into());
+            return Err(AppError::io(&self.link, error));
         }
         Ok(())
     }

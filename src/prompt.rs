@@ -7,11 +7,7 @@ use crate::error::{AppError, Result};
 use crate::profile;
 use crate::targets::TargetSpec;
 
-pub fn select_profile(
-    target: &'static TargetSpec,
-    name: Option<String>,
-    prompt: &str,
-) -> Result<String> {
+pub fn select_profile(target: &TargetSpec, name: Option<String>, prompt: &str) -> Result<String> {
     match name {
         Some(name) => Ok(name),
         None => {
@@ -43,7 +39,7 @@ pub fn select_profile(
     }
 }
 
-pub fn select_copy_source(target: &'static TargetSpec) -> Result<Option<String>> {
+pub fn select_copy_source(target: &TargetSpec) -> Result<Option<String>> {
     let profiles = profile::list(target)?;
     let active = activation::active_name(target)?;
     let mut labels = vec!["Default template".to_string()];

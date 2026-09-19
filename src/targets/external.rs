@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
-use crate::error::{AppError, Result};
+use crate::error::{AppError, IoContext, Result};
 use crate::fs_util;
 use crate::paths;
 use crate::style;
@@ -39,7 +39,7 @@ impl ExternalTargetConfig {
         self.id.as_deref().unwrap_or(&self.name)
     }
 
-    fn validate(&self, command_names: &[String]) -> Result<()> {
+    fn validate(&self, command_names: &[String], home: &Path) -> Result<()> {
         let target_id = self.resolved_id();
         // Validate both the table name and resolved id.  The table name is
         // retained in package definitions and must not be able to smuggle a
@@ -65,6 +65,14 @@ impl ExternalTargetConfig {
         let mut filenames = HashSet::new();
         let mut active_paths = HashMap::new();
         for resource in &self.resources {
+            if resource.resolved_key().is_empty()
+                || resource.resolved_key().chars().any(char::is_control)
+            {
+                return Err(AppError::TargetConflict(format!(
+                    "target '{}' declares an invalid empty or control-character resource key",
+                    target_id
+                )));
+            }
             if !keys.insert(resource.resolved_key()) {
                 return Err(AppError::TargetConflict(format!(
                     "target '{}' declares duplicate resource '{}'",
@@ -81,7 +89,7 @@ impl ExternalTargetConfig {
                 )));
             }
 
-            let active_path = resource.effective_active_path(target_id)?;
+            let active_path = resource.effective_active_path(target_id, home)?;
             if let Some(previous) = active_paths.insert(active_path, resource.resolved_key()) {
                 return Err(AppError::TargetConflict(format!(
                     "target '{}' declares resources '{}' and '{}' with the same active path",
@@ -96,15 +104,14 @@ impl ExternalTargetConfig {
 
     /// Convert without revalidating; the definition must already have passed validation.
     pub(super) fn to_spec_unchecked(&self) -> TargetSpec {
-        let id = leak_string(self.resolved_id().to_string());
         let resources = self
             .resources
             .iter()
             .map(ExternalResourceConfig::to_spec)
             .collect::<Vec<_>>();
         TargetSpec {
-            id,
-            resources: Box::leak(resources.into_boxed_slice()),
+            id: self.resolved_id().to_string(),
+            resources,
         }
     }
 
@@ -141,10 +148,9 @@ impl ExternalResourceConfig {
             && self.required.unwrap_or(true) == other.required.unwrap_or(true)
     }
 
-    fn effective_active_path(&self, target_id: &str) -> Result<PathBuf> {
-        let home = config::home_dir()?;
+    fn effective_active_path(&self, target_id: &str, home: &Path) -> Result<PathBuf> {
         let path = paths::resolve_active_path(
-            &home,
+            home,
             self.active_path.as_deref(),
             self.absolute_active_path.as_deref(),
         )
@@ -189,16 +195,13 @@ impl ExtraTarget {
 
 impl ExternalResourceConfig {
     fn to_spec(&self) -> ResourceSpec {
-        let filename = leak_string(self.filename.clone());
-        let key = leak_string(self.key.clone().unwrap_or_else(|| self.filename.clone()));
-        let template = leak_bytes(self.template.clone().unwrap_or_default().into_bytes());
         ResourceSpec {
-            key,
-            filename,
-            active_path: self.active_path.clone().map(leak_string),
-            absolute_active_path: self.absolute_active_path.clone().map(leak_string),
+            key: self.key.clone().unwrap_or_else(|| self.filename.clone()),
+            filename: self.filename.clone(),
+            active_path: self.active_path.clone(),
+            absolute_active_path: self.absolute_active_path.clone(),
             required: self.required.unwrap_or(true),
-            template,
+            template: self.template.clone().unwrap_or_default().into_bytes(),
             validate: super::external_validate,
         }
     }
@@ -206,6 +209,7 @@ impl ExternalResourceConfig {
 
 fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -> Result<()> {
     let command_names = crate::cli::command_names();
+    let home = config::home_dir()?;
     let mut ids = HashSet::new();
     for (name, config) in configs {
         // The TOML table key is the external definition's name and is also
@@ -219,7 +223,7 @@ fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -
                 config.name, name
             )));
         }
-        config.validate(command_names)?;
+        config.validate(command_names, &home)?;
         if !ids.insert(config.resolved_id()) {
             return Err(AppError::TargetConflict(format!(
                 "target id '{}' declared by '{name}' conflicts with an existing target",
@@ -234,7 +238,7 @@ fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -
 /// complete TOML map. Package manifests use this boundary directly so a
 /// malformed embedded definition cannot depend on the caller's merge mode.
 pub(crate) fn validate_external_config(config: &ExternalTargetConfig) -> Result<()> {
-    config.validate(crate::cli::command_names())
+    config.validate(crate::cli::command_names(), &config::home_dir()?)
 }
 
 // Keep validation at the read/write boundary: unpack also accesses configs without all().
@@ -243,7 +247,7 @@ pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetC
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
-    parse_external_configs(&fs::read(&path)?, &path)
+    parse_external_configs(&fs::read(&path).with_path(&path)?, &path)
 }
 
 pub(crate) fn validate_external_configs_content(content: &[u8]) -> Result<()> {
@@ -300,13 +304,6 @@ fn serialize_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) 
     Ok(content.into_bytes())
 }
 
-pub(crate) fn external_config_for(target: &TargetSpec) -> Result<Option<ExternalTargetConfig>> {
-    let target_id = target.id;
-    Ok(read_external_configs()?
-        .into_values()
-        .find(|config| config.resolved_id() == target_id))
-}
-
 pub(crate) fn find_external_config<'a>(
     configs: &'a BTreeMap<String, ExternalTargetConfig>,
     target_id: &str,
@@ -334,8 +331,9 @@ where
     // directly instead of going through the TOML/manifest readers.
     validate_external_configs(&local)?;
     let command_names = crate::cli::command_names();
+    let home = config::home_dir()?;
     for config in packaged {
-        config.validate(command_names)?;
+        config.validate(command_names, &home)?;
     }
 
     for incoming in packaged {
@@ -403,14 +401,6 @@ where
     }
     validate_external_configs(&local)?;
     Ok(local)
-}
-
-fn leak_string(value: String) -> &'static str {
-    Box::leak(value.into_boxed_str())
-}
-
-fn leak_bytes(value: Vec<u8>) -> &'static [u8] {
-    Box::leak(value.into_boxed_slice())
 }
 
 #[cfg(test)]
@@ -606,11 +596,11 @@ mod tests {
         )]);
         let spec = spec_from_external_config(&config).unwrap();
         assert_eq!(
-            spec.resources[0].active_path,
+            spec.resources[0].active_path.as_deref(),
             Some(".config/demo/settings.json")
         );
         assert_eq!(
-            spec.resources[0].absolute_active_path,
+            spec.resources[0].absolute_active_path.as_deref(),
             Some(absolute.to_str().unwrap())
         );
     }
@@ -647,5 +637,19 @@ mod tests {
             None,
         )]);
         assert!(spec_from_external_config(&invalid_filename).is_err());
+
+        for invalid in [
+            resource(
+                "",
+                "settings.json",
+                Some(".config/demo/settings.json"),
+                None,
+            ),
+            resource("r", "", Some(".config/demo/settings.json"), None),
+            resource("r", "CON.json", Some(".config/demo/settings.json"), None),
+            resource("r", "settings.json", Some(""), None),
+        ] {
+            assert!(spec_from_external_config(&target(vec![invalid])).is_err());
+        }
     }
 }

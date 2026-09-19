@@ -2,49 +2,50 @@ mod claude;
 mod codex;
 mod external;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, LazyLock};
 
 use crate::error::{AppError, Result};
 use crate::paths;
 
 pub(crate) use external::{
-    ExternalResourceConfig, ExternalTargetConfig, external_config_for, find_external_config,
-    merge_external_configs, read_external_configs, spec_from_external_config,
-    stage_external_configs, validate_external_config, validate_external_configs_content,
+    ExternalResourceConfig, ExternalTargetConfig, find_external_config, merge_external_configs,
+    read_external_configs, spec_from_external_config, stage_external_configs,
+    validate_external_config, validate_external_configs_content,
 };
 
 pub type Validator = fn(&[u8]) -> Result<()>;
 
 pub(crate) const EXTRA_TARGET_FILE: &str = "extra-target.toml";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ResourceSpec {
-    pub key: &'static str,
-    pub filename: &'static str,
+    pub key: String,
+    pub filename: String,
     /// Path relative to the user's home directory, when configured.
     ///
     /// External targets may instead use `absolute_active_path`; built-in
     /// targets use this field exclusively.
-    pub active_path: Option<&'static str>,
+    pub active_path: Option<String>,
     /// Absolute path used for resources that do not live below `$HOME`.
     ///
     /// This is intentionally optional so the same representation can be used
     /// for both built-in and external target definitions.
-    pub absolute_active_path: Option<&'static str>,
+    pub absolute_active_path: Option<String>,
     pub required: bool,
-    pub template: &'static [u8],
+    pub template: Vec<u8>,
     pub validate: Validator,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TargetSpec {
-    pub id: &'static str,
-    pub resources: &'static [ResourceSpec],
+    pub id: String,
+    pub resources: Vec<ResourceSpec>,
 }
 
 impl TargetSpec {
-    pub fn resource(&self, key: &str) -> Result<&'static ResourceSpec> {
+    pub fn resource(&self, key: &str) -> Result<&ResourceSpec> {
         self.resources
             .iter()
             .find(|resource| resource.key == key)
@@ -56,8 +57,12 @@ impl TargetSpec {
 
     /// Resolve the active path, checking its syntax and existing parent directories.
     pub fn active_path(&self, home: &Path, resource: &ResourceSpec) -> Result<PathBuf> {
-        paths::validate_target_id(self.id)?;
-        paths::resolve_active_path(home, resource.active_path, resource.absolute_active_path)
+        paths::validate_target_id(&self.id)?;
+        paths::resolve_active_path(
+            home,
+            resource.active_path.as_deref(),
+            resource.absolute_active_path.as_deref(),
+        )
     }
 }
 
@@ -65,33 +70,55 @@ fn external_validate(_: &[u8]) -> Result<()> {
     Ok(())
 }
 
-const BUILTIN_TARGETS: &[&TargetSpec] = &[&claude::SPEC, &codex::SPEC];
+static BUILTIN_TARGETS: LazyLock<Vec<Arc<TargetSpec>>> =
+    LazyLock::new(|| vec![Arc::new(claude::spec()), Arc::new(codex::spec())]);
 
-pub fn get(id: &str) -> Result<&'static TargetSpec> {
-    all()?
-        .iter()
-        .copied()
-        .find(|target| target.id == id)
-        .ok_or_else(|| AppError::UnknownTarget(id.to_string()))
+/// Target definitions owned for the lifetime of one application operation.
+///
+/// Loading a repository takes a fresh snapshot of the external configuration.
+/// Callers that perform several target operations should share one repository.
+#[derive(Debug)]
+pub struct TargetRepository {
+    targets: Vec<Arc<TargetSpec>>,
+    external_configs: BTreeMap<String, ExternalTargetConfig>,
 }
 
-pub fn all() -> Result<&'static [&'static TargetSpec]> {
-    static TARGETS: OnceLock<std::result::Result<Box<[&'static TargetSpec]>, AppError>> =
-        OnceLock::new();
-    match TARGETS.get_or_init(load_from_config) {
-        Ok(targets) => Ok(targets),
-        Err(error) => Err(AppError::Other(error.to_string())),
+impl TargetRepository {
+    pub fn load() -> Result<Self> {
+        let external_configs = read_external_configs()?;
+        let mut targets = BUILTIN_TARGETS.iter().cloned().collect::<Vec<_>>();
+        targets.extend(
+            external_configs
+                .values()
+                .map(|config| Arc::new(config.to_spec_unchecked())),
+        );
+        Ok(Self {
+            targets,
+            external_configs,
+        })
     }
-}
 
-fn load_from_config() -> Result<Box<[&'static TargetSpec]>> {
-    let mut targets = BUILTIN_TARGETS.to_vec();
-    // Reading validates the entire configuration before any specs are allocated.
-    for target_config in read_external_configs()?.into_values() {
-        let target = Box::leak(Box::new(target_config.to_spec_unchecked()));
-        targets.push(target);
+    pub fn get(&self, id: &str) -> Result<Arc<TargetSpec>> {
+        self.targets
+            .iter()
+            .find(|target| target.id == id)
+            .cloned()
+            .ok_or_else(|| AppError::UnknownTarget(id.to_string()))
     }
-    Ok(targets.into_boxed_slice())
+
+    pub fn all(&self) -> &[Arc<TargetSpec>] {
+        &self.targets
+    }
+
+    pub(crate) fn external_configs(&self) -> &BTreeMap<String, ExternalTargetConfig> {
+        &self.external_configs
+    }
+
+    pub(crate) fn external_config_for(&self, target: &TargetSpec) -> Option<&ExternalTargetConfig> {
+        self.external_configs
+            .values()
+            .find(|config| config.resolved_id() == target.id)
+    }
 }
 
 pub(crate) fn is_builtin(target: &TargetSpec) -> bool {
@@ -106,7 +133,7 @@ mod tests {
 
     #[test]
     fn builtin_targets_are_identified() {
-        assert!(is_builtin(&super::claude::SPEC));
-        assert!(is_builtin(&super::codex::SPEC));
+        assert!(is_builtin(&super::claude::spec()));
+        assert!(is_builtin(&super::codex::spec()));
     }
 }

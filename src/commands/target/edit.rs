@@ -6,14 +6,14 @@ use crate::style;
 use crate::targets::{ResourceSpec, TargetSpec};
 
 pub fn run(
-    target: &'static TargetSpec,
+    target: &TargetSpec,
     name: Option<String>,
     filename: Option<String>,
     editor_name: Option<String>,
 ) -> Result<()> {
     let name = prompt::select_profile(target, name, "Profile to edit (type to search)")?;
     prompt::require_profile(target, &name)?;
-    let resources: Vec<&'static ResourceSpec> = match filename {
+    let resources: Vec<&ResourceSpec> = match filename {
         Some(filename) => vec![target.resource(&filename)?],
         None => target.resources.iter().collect(),
     };

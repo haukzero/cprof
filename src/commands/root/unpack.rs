@@ -1,14 +1,16 @@
 use crate::commands::target;
 use crate::error::Result;
 use crate::style;
+use crate::targets::TargetRepository;
 
-pub fn run(path: Option<String>, force: bool) -> Result<()> {
-    let packages = target::unpack::read_package(path)?;
-    let (target_configs, configs_changed) = target::unpack::merge_target_configs(&packages, force)?;
+pub fn run(targets: &TargetRepository, path: Option<String>, force: bool) -> Result<()> {
+    let packages = target::unpack::read_package(targets, path)?;
+    let (target_configs, configs_changed) =
+        target::unpack::merge_target_configs(targets, &packages, force)?;
     let mut plans = Vec::with_capacity(packages.len());
     for package in packages {
-        let target = target::unpack::resolve_target(&package, &target_configs)?;
-        let profiles = target::unpack::remap_profiles(target, package.profiles)?;
+        let target = target::unpack::resolve_target(targets, &package, &target_configs)?;
+        let profiles = target::unpack::remap_profiles(&target, package.profiles)?;
         plans.push(target::unpack::prepare_unpack(target, profiles, force)?);
     }
 

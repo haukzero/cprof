@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::sync::OnceLock;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
@@ -29,7 +30,7 @@ pub fn command_names() -> &'static [String] {
 }
 
 pub fn command_with_extra_targets(
-    extra_target_ids: impl IntoIterator<Item = &'static str>,
+    extra_target_ids: impl IntoIterator<Item = String>,
 ) -> clap::Command {
     let mut command = Cli::command();
     for target_id in extra_target_ids {
@@ -39,18 +40,12 @@ pub fn command_with_extra_targets(
     command
 }
 
-pub fn is_root_help_error(error: &clap::Error) -> bool {
-    if !matches!(
-        error.kind(),
-        clap::error::ErrorKind::DisplayHelp
-            | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-    ) {
-        return false;
-    }
-
-    // Clap does not expose the command path on help errors, so compare the root rendering.
-    let mut command = Cli::command();
-    error.render().to_string() == command.render_help().to_string()
+pub fn is_root_help_request(args: &[OsString]) -> bool {
+    args.is_empty()
+        || matches!(
+            args,
+            [argument] if matches!(argument.to_str(), Some("-h" | "--help" | "help"))
+        )
 }
 
 #[derive(Subcommand)]
@@ -191,13 +186,31 @@ pub enum TargetCommand {
 
 #[cfg(test)]
 mod tests {
-    use super::command_with_extra_targets;
+    use std::ffi::OsString;
+
+    use super::{command_with_extra_targets, is_root_help_request};
 
     #[test]
     fn extra_targets_are_listed_in_root_help() {
-        let mut command = command_with_extra_targets(["test_extra_target"]);
+        let mut command = command_with_extra_targets(["test_extra_target".to_string()]);
         let help = command.render_help().to_string();
 
         assert!(help.contains("test_extra_target"));
+    }
+
+    #[test]
+    fn root_help_requests_are_identified_without_rendering_help() {
+        for args in [vec![], vec!["-h"], vec!["--help"], vec!["help"]] {
+            let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
+            assert!(is_root_help_request(&args), "{args:?}");
+        }
+        for args in [
+            vec!["pack", "--help"],
+            vec!["help", "pack"],
+            vec!["claude", "--help"],
+        ] {
+            let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
+            assert!(!is_root_help_request(&args), "{args:?}");
+        }
     }
 }

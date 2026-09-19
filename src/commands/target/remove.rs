@@ -5,7 +5,7 @@ use crate::prompt;
 use crate::style;
 use crate::targets::TargetSpec;
 
-pub fn run(target: &'static TargetSpec, names: Vec<String>) -> Result<()> {
+pub fn run(target: &TargetSpec, names: Vec<String>) -> Result<()> {
     let names = if names.is_empty() {
         vec![prompt::select_profile(
             target,

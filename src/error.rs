@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("Profile '{0}' already exists")]
@@ -60,6 +62,13 @@ pub enum AppError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("IO error for '{}': {source}", path.display())]
+    IoPath {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -77,3 +86,33 @@ pub enum AppError {
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
+
+impl AppError {
+    pub(crate) fn io(path: &Path, source: std::io::Error) -> Self {
+        Self::IoPath {
+            path: path.to_path_buf(),
+            source,
+        }
+    }
+
+    pub(crate) fn is_io_kind(&self, kind: std::io::ErrorKind) -> bool {
+        self.io_source().is_some_and(|source| source.kind() == kind)
+    }
+
+    pub(crate) fn io_source(&self) -> Option<&std::io::Error> {
+        match self {
+            Self::Io(source) | Self::IoPath { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) trait IoContext<T> {
+    fn with_path(self, path: &Path) -> Result<T>;
+}
+
+impl<T> IoContext<T> for std::io::Result<T> {
+    fn with_path(self, path: &Path) -> Result<T> {
+        self.map_err(|source| AppError::io(path, source))
+    }
+}
