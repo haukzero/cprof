@@ -83,6 +83,27 @@ fn invalid_profile_edit_keeps_every_original_and_removes_temporary_files() {
 }
 
 #[test]
+fn profile_edit_drafts_keep_the_original_file_extensions() {
+    let home = TestHome::new();
+    home.succeeds(&["codex", "create", "test", "--editor", "/bin/true"]);
+    let editor = home.path.join("extension checking editor");
+    fs::write(
+        &editor,
+        "#!/bin/sh\ncase \"$1\" in\n  *.toml|*.json) exit 0 ;;\n  *) exit 1 ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
+
+    home.succeeds(&[
+        "codex",
+        "edit",
+        "test",
+        "--editor",
+        editor.to_str().unwrap(),
+    ]);
+}
+
+#[test]
 fn invalid_extra_target_edit_keeps_original_and_removes_temporary_file() {
     let home = TestHome::new();
     let original = "[demo]\n";

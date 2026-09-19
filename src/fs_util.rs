@@ -286,8 +286,16 @@ fn parent(path: &Path) -> Result<&Path> {
 fn temporary_sibling(destination: &Path, label: &str) -> PathBuf {
     let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let mut name = OsString::from(".");
-    name.push(destination.file_name().unwrap_or(destination.as_os_str()));
+    name.push(
+        destination
+            .file_stem()
+            .unwrap_or_else(|| destination.file_name().unwrap_or(destination.as_os_str())),
+    );
     name.push(format!(".cprof-{label}-{}-{sequence}", std::process::id()));
+    if let Some(extension) = destination.extension() {
+        name.push(".");
+        name.push(extension);
+    }
     destination.with_file_name(name)
 }
 
@@ -401,8 +409,41 @@ pub fn create_symlink(target: &Path, link: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::PathTransaction;
+    use super::{PathTransaction, temporary_sibling};
+    use std::ffi::OsStr;
     use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn temporary_siblings_keep_the_destination_extension() {
+        let temporary = temporary_sibling(Path::new("/profiles/config.toml"), "edit");
+
+        assert_eq!(temporary.extension(), Some(OsStr::new("toml")));
+        let name = temporary.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with(".config.cprof-edit-"), "{name}");
+        assert!(name.ends_with(".toml"), "{name}");
+    }
+
+    #[test]
+    fn temporary_siblings_still_support_extensionless_and_hidden_names() {
+        let extensionless = temporary_sibling(Path::new("/profiles/settings"), "edit");
+        let hidden = temporary_sibling(Path::new("/profiles/.credentials"), "edit");
+
+        assert!(
+            extensionless
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".settings.cprof-edit-")
+        );
+        assert!(
+            hidden
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("..credentials.cprof-edit-")
+        );
+    }
 
     #[test]
     fn commit_conflict_restores_already_applied_paths() {
