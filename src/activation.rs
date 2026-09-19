@@ -200,9 +200,13 @@ struct LinkOperation {
 impl LinkOperation {
     fn new(index: usize, link: PathBuf, source: Option<PathBuf>, had_existing: bool) -> Self {
         let suffix = format!(".cprof-{}-{index}", std::process::id());
+        let mut staging = link.as_os_str().to_os_string();
+        staging.push(format!("{suffix}.stage"));
+        let mut rollback = link.as_os_str().to_os_string();
+        rollback.push(format!("{suffix}.rollback"));
         Self {
-            staging: PathBuf::from(format!("{}{suffix}.stage", link.display())),
-            rollback: PathBuf::from(format!("{}{suffix}.rollback", link.display())),
+            staging: PathBuf::from(staging),
+            rollback: PathBuf::from(rollback),
             link,
             source,
             had_existing,

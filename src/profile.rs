@@ -7,6 +7,7 @@ use indexmap::IndexSet;
 use crate::config;
 use crate::error::{AppError, Result};
 use crate::fs_util;
+use crate::paths;
 use crate::targets::{ResourceSpec, TargetSpec};
 
 #[derive(Debug, Clone)]
@@ -22,11 +23,7 @@ pub struct ProfileResource {
 }
 
 pub fn validate_name(name: &str) -> Result<()> {
-    if name.is_empty()
-        || matches!(name, "." | "..")
-        || name.contains(['/', '\\'])
-        || name.chars().any(char::is_control)
-    {
+    if paths::validate_safe_component(name).is_err() {
         return Err(AppError::InvalidProfileName(name.to_string()));
     }
     Ok(())
@@ -45,7 +42,7 @@ pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
     }
 
     for spec in target.resources {
-        let path = dir.join(spec.filename);
+        let path = config::profile_resource(target, name, spec)?;
         if !path.is_file() {
             if spec.required {
                 return Ok(false);
@@ -179,9 +176,9 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
 
     fs::create_dir_all(&dir)?;
     let result = target.resources.iter().try_for_each(|resource| {
-        let destination = dir.join(resource.filename);
+        let destination = config::profile_resource(target, name, resource)?;
         if let Some(source_dir) = &source_dir {
-            let source_path = source_dir.join(resource.filename);
+            let source_path = resource_path_in(source_dir, resource)?;
             if source_path.exists() {
                 fs_util::write_file(&destination, &fs::read(source_path)?)?;
             }
@@ -220,8 +217,9 @@ pub fn replace(
     }
     validate_resources(target, name, resources)?;
 
+    let staging_name = format!(".{name}.incoming-{}", std::process::id());
     let staging_dir =
-        config::profiles_dir(target)?.join(format!(".{name}.incoming-{}", std::process::id()));
+        paths::join_storage_under(&config::profiles_dir(target)?, Path::new(&staging_name))?;
     let rollback_dir = staging_dir.with_extension("rollback");
     fs_util::remove_dir_if_exists(&staging_dir)?;
     fs_util::remove_dir_if_exists(&rollback_dir)?;
@@ -279,10 +277,15 @@ pub fn validate_resource_file(path: &Path, resource: &ResourceSpec) -> Result<()
 
 fn write_resources(dir: &Path, resources: &[ProfileResource]) -> Result<()> {
     for resource in resources {
-        let path = dir.join(resource.spec.filename);
+        let path = resource_path_in(dir, resource.spec)?;
         fs_util::write_file(&path, &resource.content)?;
     }
     Ok(())
+}
+
+fn resource_path_in(dir: &Path, resource: &ResourceSpec) -> Result<PathBuf> {
+    paths::validate_filename(resource.filename)?;
+    paths::join_storage_under(dir, Path::new(resource.filename))
 }
 
 fn validate_resources(

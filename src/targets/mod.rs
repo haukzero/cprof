@@ -6,11 +6,12 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::error::{AppError, Result};
+use crate::paths;
 
 pub(crate) use external::{
     ExternalResourceConfig, ExternalTargetConfig, external_config_for, find_external_config,
     merge_external_configs, read_external_configs, spec_from_external_config,
-    write_external_configs,
+    validate_external_config, write_external_configs,
 };
 
 pub type Validator = fn(&[u8]) -> Result<()>;
@@ -21,7 +22,16 @@ pub(crate) const EXTRA_TARGET_FILE: &str = "extra-target.toml";
 pub struct ResourceSpec {
     pub key: &'static str,
     pub filename: &'static str,
-    pub active_path: &'static str,
+    /// Path relative to the user's home directory, when configured.
+    ///
+    /// External targets may instead use `absolute_active_path`; built-in
+    /// targets use this field exclusively.
+    pub active_path: Option<&'static str>,
+    /// Absolute path used for resources that do not live below `$HOME`.
+    ///
+    /// This is intentionally optional so the same representation can be used
+    /// for both built-in and external target definitions.
+    pub absolute_active_path: Option<&'static str>,
     pub required: bool,
     pub template: &'static [u8],
     pub validate: Validator,
@@ -44,8 +54,10 @@ impl TargetSpec {
             })
     }
 
-    pub fn active_path(&self, home: &Path, resource: &ResourceSpec) -> PathBuf {
-        home.join(resource.active_path)
+    /// Resolve the active path, checking its syntax and existing parent directories.
+    pub fn active_path(&self, home: &Path, resource: &ResourceSpec) -> Result<PathBuf> {
+        paths::validate_target_id(self.id)?;
+        paths::resolve_active_path(home, resource.active_path, resource.absolute_active_path)
     }
 }
 
@@ -94,7 +106,7 @@ mod tests {
 
     #[test]
     fn builtin_targets_are_identified() {
-        assert!(is_builtin(super::get("claude").unwrap()));
-        assert!(is_builtin(super::get("codex").unwrap()));
+        assert!(is_builtin(&super::claude::SPEC));
+        assert!(is_builtin(&super::codex::SPEC));
     }
 }

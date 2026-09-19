@@ -7,6 +7,7 @@ pub mod elevate;
 pub mod error;
 mod fs_util;
 pub mod package;
+mod paths;
 pub mod profile;
 pub mod prompt;
 pub mod style;

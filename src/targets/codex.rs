@@ -22,7 +22,8 @@ const RESOURCES: &[ResourceSpec] = &[
     ResourceSpec {
         key: "config",
         filename: "config.toml",
-        active_path: ".codex/config.toml",
+        active_path: Some(".codex/config.toml"),
+        absolute_active_path: None,
         required: true,
         template: CONFIG_TEMPLATE,
         validate: validate_toml,
@@ -30,7 +31,8 @@ const RESOURCES: &[ResourceSpec] = &[
     ResourceSpec {
         key: "auth",
         filename: "auth.json",
-        active_path: ".codex/auth.json",
+        active_path: Some(".codex/auth.json"),
+        absolute_active_path: None,
         required: true,
         template: AUTH_TEMPLATE,
         validate: validate_json,

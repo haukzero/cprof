@@ -15,10 +15,23 @@ fn unique_name(suffix: &str) -> String {
     format!("test_{}_{}", std::process::id(), suffix)
 }
 
+fn test_home() -> &'static PathBuf {
+    static HOME: OnceLock<PathBuf> = OnceLock::new();
+    HOME.get_or_init(|| {
+        let path = tempfile::tempdir().unwrap().keep();
+        // `dirs::home_dir` reads HOME on Unix.  The integration binary must
+        // never inspect the developer's real cprof configuration.
+        unsafe { std::env::set_var("HOME", &path) };
+        path
+    })
+}
+
 fn claude() -> &'static targets::TargetSpec {
+    let _ = test_home();
     targets::get("claude").unwrap()
 }
 fn codex() -> &'static targets::TargetSpec {
+    let _ = test_home();
     targets::get("codex").unwrap()
 }
 

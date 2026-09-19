@@ -138,7 +138,8 @@ mod tests {
             resources: vec![ExternalResourceConfig {
                 key: None,
                 filename: "settings.conf".to_string(),
-                active_path: ".config/demo/settings.conf".to_string(),
+                active_path: Some(".config/demo/settings.conf".to_string()),
+                absolute_active_path: None,
                 template: None,
                 required: Some(false),
             }],

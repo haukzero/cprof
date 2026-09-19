@@ -12,6 +12,18 @@ pub enum AppError {
     #[error("Invalid profile name '{0}'")]
     InvalidProfileName(String),
 
+    #[error("Invalid target id '{0}'")]
+    InvalidTargetId(String),
+
+    #[error("Invalid filename '{0}'")]
+    InvalidFilename(String),
+
+    #[error("Invalid active path '{0}'")]
+    InvalidActivePath(String),
+
+    #[error("Unsafe path '{0}'")]
+    UnsafePath(String),
+
     #[error("Unknown target '{0}'")]
     UnknownTarget(String),
 

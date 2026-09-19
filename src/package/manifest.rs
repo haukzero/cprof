@@ -1,9 +1,8 @@
 use crate::error::{AppError, Result};
-use crate::targets::{ExternalResourceConfig, ExternalTargetConfig};
+use crate::targets::{ExternalResourceConfig, ExternalTargetConfig, validate_external_config};
 
 const MAGIC: &[u8; 4] = b"CPMF";
-const VERSION: u8 = 2;
-const LEGACY_VERSION: u8 = 1;
+const VERSION: u8 = 3;
 const MAX_ITEMS: u64 = 1_000_000;
 const MAX_STRING_LEN: usize = 1024 * 1024;
 
@@ -59,7 +58,7 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
         ));
     }
     let version = reader.read_byte()?;
-    if !matches!(version, LEGACY_VERSION | VERSION) {
+    if version != VERSION {
         return Err(AppError::InvalidPackage(
             "Unsupported package manifest version".to_string(),
         ));
@@ -69,17 +68,13 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
     let mut targets = Vec::with_capacity(target_count);
     for _ in 0..target_count {
         let target = reader.read_string()?;
-        let target_config = if version == LEGACY_VERSION {
-            None
-        } else {
-            match reader.read_byte()? {
-                0 => None,
-                1 => Some(read_external_config(&mut reader)?),
-                _ => {
-                    return Err(AppError::InvalidPackage(
-                        "Manifest contains invalid target configuration flag".to_string(),
-                    ));
-                }
+        let target_config = match reader.read_byte()? {
+            0 => None,
+            1 => Some(read_external_config(&mut reader)?),
+            _ => {
+                return Err(AppError::InvalidPackage(
+                    "Manifest contains invalid target configuration flag".to_string(),
+                ));
             }
         };
         let profile_count = reader.read_count()?;
@@ -104,13 +99,17 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
 }
 
 fn write_external_config(bytes: &mut Vec<u8>, config: &ExternalTargetConfig) -> Result<()> {
+    validate_external_config(config).map_err(|error| {
+        AppError::InvalidPackage(format!("Invalid target configuration: {error}"))
+    })?;
     write_string(bytes, &config.name)?;
     write_optional_string(bytes, config.id.as_deref())?;
     write_count(bytes, config.resources.len());
     for resource in &config.resources {
         write_optional_string(bytes, resource.key.as_deref())?;
         write_string(bytes, &resource.filename)?;
-        write_string(bytes, &resource.active_path)?;
+        write_optional_string(bytes, resource.active_path.as_deref())?;
+        write_optional_string(bytes, resource.absolute_active_path.as_deref())?;
         write_optional_string(bytes, resource.template.as_deref())?;
         write_optional_bool(bytes, resource.required);
     }
@@ -126,16 +125,21 @@ fn read_external_config(reader: &mut Reader<'_>) -> Result<ExternalTargetConfig>
         resources.push(ExternalResourceConfig {
             key: reader.read_optional_string()?,
             filename: reader.read_string()?,
-            active_path: reader.read_string()?,
+            active_path: reader.read_optional_string()?,
+            absolute_active_path: reader.read_optional_string()?,
             template: reader.read_optional_string()?,
             required: reader.read_optional_bool()?,
         });
     }
-    Ok(ExternalTargetConfig {
+    let config = ExternalTargetConfig {
         name,
         id,
         resources,
-    })
+    };
+    validate_external_config(&config).map_err(|error| {
+        AppError::InvalidPackage(format!("Invalid target configuration: {error}"))
+    })?;
+    Ok(config)
 }
 
 fn write_optional_string(bytes: &mut Vec<u8>, value: Option<&str>) -> Result<()> {
@@ -318,7 +322,8 @@ mod tests {
             resources: vec![ExternalResourceConfig {
                 key: None,
                 filename: "settings.conf".to_string(),
-                active_path: ".config/demo/settings.conf".to_string(),
+                active_path: Some(".config/demo/settings.conf".to_string()),
+                absolute_active_path: None,
                 template: Some("default".to_string()),
                 required: Some(false),
             }],

@@ -18,7 +18,8 @@ fn validate(content: &[u8]) -> Result<()> {
 const RESOURCES: &[ResourceSpec] = &[ResourceSpec {
     key: "settings",
     filename: "settings.json",
-    active_path: ".claude/settings.json",
+    active_path: Some(".claude/settings.json"),
+    absolute_active_path: None,
     required: true,
     template: TEMPLATE,
     validate,

@@ -3,9 +3,11 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
-use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
+#[path = "cli/paths.rs"]
+mod paths;
+mod support;
+
+use support::TestHome;
 
 const INVALID_CONFIGS: &[(&str, &str)] = &[
     ("[broken", "Failed to parse"),
@@ -26,64 +28,6 @@ const INVALID_CONFIGS: &[(&str, &str)] = &[
         "declares duplicate resource",
     ),
 ];
-
-struct TestHome {
-    path: PathBuf,
-}
-
-impl TestHome {
-    fn new() -> Self {
-        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("cprof-cli-{}-{id}", std::process::id()));
-        fs::create_dir(&path).unwrap();
-        Self { path }
-    }
-
-    fn config_path(&self) -> PathBuf {
-        self.path.join(".cprof/extra-target.toml")
-    }
-
-    fn set_config(&self, content: &str) {
-        fs::create_dir_all(self.path.join(".cprof")).unwrap();
-        fs::write(self.config_path(), content).unwrap();
-    }
-
-    fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_cprof"))
-            .args(args)
-            .env("HOME", &self.path)
-            .env("NO_COLOR", "1")
-            .current_dir(&self.path)
-            .output()
-            .unwrap()
-    }
-
-    fn succeeds(&self, args: &[&str]) -> String {
-        let output = self.run(args);
-        assert!(output.status.success(), "{args:?}: {output:?}");
-        String::from_utf8(output.stdout).unwrap()
-    }
-
-    fn pack_external_target(&self, config: &str, target_id: &str) -> PathBuf {
-        self.set_config(config);
-        fs::create_dir_all(
-            self.path
-                .join(".cprof/profiles")
-                .join(target_id)
-                .join("test"),
-        )
-        .unwrap();
-        self.succeeds(&["pack"]);
-        self.path.join("cprof.pkg")
-    }
-}
-
-impl Drop for TestHome {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 #[test]
 fn edit_extra_opens_invalid_configs_without_replacing_them() {
@@ -161,11 +105,10 @@ fn target_consumers_still_reject_invalid_configs() {
             &["clean", "-f", "--extra-toml"],
             &["--help"],
         ] {
-            let output = home.run(args);
-            assert!(!output.status.success(), "{config}: {args:?}");
+            let stderr = home.fails(args);
             assert!(
-                String::from_utf8_lossy(&output.stderr).contains(expected_error),
-                "{config}: {args:?}: {output:?}"
+                stderr.contains(expected_error),
+                "{config}: {args:?}: {stderr}"
             );
             assert_eq!(fs::read_to_string(home.config_path()).unwrap(), config);
             assert!(!home.path.join("cprof.pkg").exists());
@@ -181,12 +124,8 @@ fn root_unpack_validates_local_config_before_merging() {
 
     for &(config, expected_error) in INVALID_CONFIGS {
         destination.set_config(config);
-        let output = destination.run(&["unpack", "--path", package.to_str().unwrap(), "-f"]);
-        assert!(!output.status.success(), "{config}");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(expected_error),
-            "{config}: {output:?}"
-        );
+        let stderr = destination.fails(&["unpack", "--path", package.to_str().unwrap(), "-f"]);
+        assert!(stderr.contains(expected_error), "{config}: {stderr}");
         assert_eq!(
             fs::read_to_string(destination.config_path()).unwrap(),
             config
@@ -208,11 +147,10 @@ fn root_unpack_rejects_duplicate_ids_created_by_merging() {
     let config = "[incoming]\nid = 'old'\n[other]\nid = 'shared'\n";
     destination.set_config(config);
 
-    let output = destination.run(&["unpack", "--path", package.to_str().unwrap(), "-f"]);
-    assert!(!output.status.success());
+    let stderr = destination.fails(&["unpack", "--path", package.to_str().unwrap(), "-f"]);
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("conflicts with an existing target"),
-        "{output:?}"
+        stderr.contains("conflicts with an existing target"),
+        "{stderr}"
     );
     assert_eq!(
         fs::read_to_string(destination.config_path()).unwrap(),
