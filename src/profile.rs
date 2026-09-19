@@ -68,7 +68,8 @@ pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
         .collect()
 }
 
-fn names(target: &TargetSpec) -> Result<Vec<String>> {
+/// List profile names without reading their resources.
+pub(crate) fn names(target: &TargetSpec) -> Result<Vec<String>> {
     let dir = config::profiles_dir(target)?;
     if !dir.exists() {
         return Ok(Vec::new());

@@ -6,7 +6,7 @@ use crate::targets::TargetSpec;
 
 pub fn run(target: &TargetSpec) -> Result<()> {
     let profiles = profile::list(target)?;
-    let active = activation::active_name(target)?;
+    let active = activation::active_name_from_profiles(target, &profiles)?;
     if profiles.is_empty() {
         println!("No profiles found.");
         return Ok(());

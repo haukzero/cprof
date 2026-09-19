@@ -15,14 +15,14 @@ pub fn run(targets: &TargetRepository, target: &TargetSpec, save: Option<String>
 }
 
 pub(crate) fn collect_target(target: &TargetSpec) -> Result<Option<package::TargetPackage>> {
-    let profiles = profile::list(target)?;
-    if profiles.is_empty() {
+    let names = profile::names(target)?;
+    if names.is_empty() {
         return Ok(None);
     }
-    let mut entries = Vec::new();
-    for profile_info in profiles {
-        let resources = profile::read(target, &profile_info.name)?;
-        entries.push(package::PackageProfile::new(profile_info.name, resources));
+    let mut entries = Vec::with_capacity(names.len());
+    for name in names {
+        let resources = profile::read(target, &name)?;
+        entries.push(package::PackageProfile::new(name, resources));
     }
     Ok(Some(package::TargetPackage::new(
         target.id.clone(),

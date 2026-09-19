@@ -15,7 +15,7 @@ pub fn select_profile(target: &TargetSpec, name: Option<String>, prompt: &str) -
             if profiles.is_empty() {
                 return Err(AppError::ProfileNotFound("(no profiles exist)".to_string()));
             }
-            let active = activation::active_name(target)?;
+            let active = activation::active_name_from_profiles(target, &profiles)?;
             let labels: Vec<String> = profiles
                 .iter()
                 .map(|p| {
@@ -41,7 +41,7 @@ pub fn select_profile(target: &TargetSpec, name: Option<String>, prompt: &str) -
 
 pub fn select_copy_source(target: &TargetSpec) -> Result<Option<String>> {
     let profiles = profile::list(target)?;
-    let active = activation::active_name(target)?;
+    let active = activation::active_name_from_profiles(target, &profiles)?;
     let mut labels = vec!["Default template".to_string()];
     labels.extend(profiles.iter().map(|profile| {
         let status = if active.as_deref() == Some(profile.name.as_str()) {

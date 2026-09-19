@@ -17,6 +17,13 @@ pub enum Status {
 }
 
 pub fn status(target: &TargetSpec) -> Result<Status> {
+    status_with(target, |name| profile::is_complete(target, name))
+}
+
+fn status_with(
+    target: &TargetSpec,
+    is_complete: impl FnOnce(&str) -> Result<bool>,
+) -> Result<Status> {
     let mut linked_profiles = Vec::new();
     let mut found = false;
 
@@ -54,7 +61,7 @@ pub fn status(target: &TargetSpec) -> Result<Status> {
             config::profile_resource(target, name, resource).is_ok_and(|path| path.exists())
         })
         .count();
-    if linked_profiles.len() != stored_resources || !profile::is_complete(target, name)? {
+    if linked_profiles.len() != stored_resources || !is_complete(name)? {
         return Ok(Status::Partial);
     }
     Ok(Status::Active(name.clone()))
@@ -62,6 +69,22 @@ pub fn status(target: &TargetSpec) -> Result<Status> {
 
 pub fn active_name(target: &TargetSpec) -> Result<Option<String>> {
     Ok(match status(target)? {
+        Status::Active(name) => Some(name),
+        _ => None,
+    })
+}
+
+pub(crate) fn active_name_from_profiles(
+    target: &TargetSpec,
+    profiles: &[profile::ProfileInfo],
+) -> Result<Option<String>> {
+    let status = status_with(target, |name| {
+        Ok(profiles
+            .iter()
+            .find(|profile| profile.name == name)
+            .is_some_and(|profile| profile.complete))
+    })?;
+    Ok(match status {
         Status::Active(name) => Some(name),
         _ => None,
     })

@@ -6,7 +6,7 @@ use crate::style;
 use crate::targets::TargetSpec;
 
 pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
-    let profiles = profile::list(target)?;
+    let profiles = profile::names(target)?;
     let active = activation::active_name(target)?;
     if profiles.is_empty() {
         println!("No profiles to clean.");
@@ -16,11 +16,11 @@ pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
         "{}",
         style::warning("This will remove all profiles and active links:")
     );
-    for profile in &profiles {
+    for name in &profiles {
         println!(
             "  {}{}",
-            profile.name,
-            if active.as_deref() == Some(profile.name.as_str()) {
+            name,
+            if active.as_deref() == Some(name.as_str()) {
                 format!(" {}", style::active_tag())
             } else {
                 String::new()
@@ -31,8 +31,8 @@ pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
         println!("Cancelled.");
         return Ok(());
     }
-    for profile in &profiles {
-        let _ = activation::remove_profile_links(target, &profile.name)?;
+    for name in &profiles {
+        let _ = activation::remove_profile_links(target, name)?;
     }
     let dir = crate::config::profiles_dir(target)?;
     if dir.exists() {
