@@ -162,14 +162,11 @@ impl ExternalResourceConfig {
         })?;
 
         if self.active_path.is_some() && self.absolute_active_path.is_some() {
-            eprintln!(
-                "{}",
-                style::warning(&format!(
-                    "Target '{target_id}' resource '{}' sets active_path and absolute_active_path to the same path ('{}')",
-                    self.resolved_key(),
-                    path.display()
-                ))
-            );
+            style::warning(format!(
+                "Target '{target_id}' resource '{}' sets active_path and absolute_active_path to the same path ('{}')",
+                self.resolved_key(),
+                path.display()
+            ));
         }
         paths::path_identity(&path)
     }

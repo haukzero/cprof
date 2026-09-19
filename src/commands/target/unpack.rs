@@ -89,13 +89,10 @@ pub(crate) fn prepare_unpack(
     for package_profile in profiles {
         let exists = profile::exists(&target, &package_profile.name)?;
         if exists {
-            println!(
-                "{}",
-                style::warning(&format!(
-                    "Profile '{}' already exists - conflict!",
-                    package_profile.name
-                ))
-            );
+            style::warning(format!(
+                "Profile '{}' already exists - conflict!",
+                package_profile.name
+            ));
             let overwrite = force || should_overwrite(&package_profile.name)?;
             if !overwrite {
                 println!("Skipped '{}'", package_profile.name);

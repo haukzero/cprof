@@ -31,7 +31,7 @@ pub fn run(
     }
     let changed = session.commit()?;
     if changed {
-        println!("{} Updated profile '{}'", style::success("Done!"), name);
+        style::success(format!("Updated profile '{}'", name));
     } else {
         println!("No changes made to profile '{}'", name);
     }

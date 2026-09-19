@@ -30,10 +30,7 @@ pub fn run(target: &TargetSpec, name: Option<String>, force: bool) -> Result<()>
         return Ok(());
     }
     if switched {
-        println!(
-            "{}",
-            style::warning(&format!("'{}' is already the active profile", name))
-        );
+        style::warning(format!("'{}' is already the active profile", name));
     } else {
         println!("Switched to profile '{}'", name);
     }

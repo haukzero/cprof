@@ -24,9 +24,9 @@ pub fn run(targets: &TargetRepository, path: Option<String>, force: bool) -> Res
         unpacked += written;
         skipped += ignored;
     }
-    println!(
-        "\n{} {unpacked} unpacked, {skipped} skipped across {targets} target(s)",
-        style::success("Done!")
-    );
+    println!();
+    style::success(format!(
+        "{unpacked} unpacked, {skipped} skipped across {targets} target(s)"
+    ));
     Ok(())
 }

@@ -12,10 +12,7 @@ pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
         println!("No profiles to clean.");
         return Ok(());
     }
-    println!(
-        "{}",
-        style::warning("This will remove all profiles and active links:")
-    );
+    style::warning("This will remove all profiles and active links:");
     for name in &profiles {
         println!(
             "  {}{}",
@@ -38,10 +35,6 @@ pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
     if dir.exists() {
         std::fs::remove_dir_all(&dir).with_path(&dir)?;
     }
-    println!(
-        "{} Cleaned {} profile(s)",
-        style::success("Done!"),
-        profiles.len()
-    );
+    style::success(format!("Cleaned {} profile(s)", profiles.len()));
     Ok(())
 }

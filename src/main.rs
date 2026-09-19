@@ -31,14 +31,14 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(RunError::App(error)) => {
             if !cprof::elevate::is_elevated_child() {
-                eprintln!("{} {}", style::error_label(), error);
+                style::error(error);
             }
             ExitCode::FAILURE
         }
         Err(RunError::Cli(error)) => {
             let exit_code = error.exit_code();
             if let Err(print_error) = error.print() {
-                eprintln!("{} {}", style::error_label(), print_error);
+                style::error(print_error);
                 return ExitCode::FAILURE;
             }
             ExitCode::from(u8::try_from(exit_code).unwrap_or(1))

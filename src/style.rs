@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use colored::ColoredString;
 use colored::Colorize;
 
@@ -6,19 +8,19 @@ pub fn active_tag() -> ColoredString {
     "(active)".green()
 }
 
-/// Success message
-pub fn success(msg: &str) -> ColoredString {
-    msg.green().bold()
+/// Print a success message to standard output.
+pub fn success(message: impl Display) {
+    println!("{} {message}", "Done!".green().bold());
 }
 
-/// Warning message
-pub fn warning(msg: &str) -> ColoredString {
-    msg.yellow()
+/// Print a warning to standard error.
+pub fn warning(message: impl Display) {
+    eprintln!("{} {message}", "warning:".yellow().bold());
 }
 
-/// Error label
-pub fn error_label() -> ColoredString {
-    "error:".red().bold()
+/// Print an error to standard error.
+pub fn error(message: impl Display) {
+    eprintln!("{} {message}", "error:".red().bold());
 }
 
 /// Profile name when active

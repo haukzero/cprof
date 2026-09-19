@@ -46,13 +46,9 @@ pub fn run(
 
     if matches!(activation::status(target)?, Status::NoFiles) {
         activation::switch(target, &name, false)?;
-        println!(
-            "{} Created and activated profile '{}'",
-            style::success("Done!"),
-            name
-        );
+        style::success(format!("Created and activated profile '{}'", name));
     } else {
-        println!("{} Created profile '{}'", style::success("Done!"), name);
+        style::success(format!("Created profile '{}'", name));
     }
     Ok(())
 }

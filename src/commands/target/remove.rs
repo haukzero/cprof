@@ -27,10 +27,7 @@ pub fn run(target: &TargetSpec, names: Vec<String>, force: bool) -> Result<()> {
     let skip_active = if let Some(active) = selected_active
         && !force
     {
-        println!(
-            "{}",
-            style::warning(&format!("'{}' is the currently active profile!", active))
-        );
+        style::warning(format!("'{}' is the currently active profile!", active));
         if !prompt::confirm("Remove anyway? This will also remove active links")? {
             println!("Skipped '{}'", active);
             true
