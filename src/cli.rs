@@ -167,6 +167,9 @@ pub enum TargetCommand {
     Remove {
         #[arg(value_name = "NAME_OR_PATTERN")]
         names: Vec<String>,
+        /// Remove an active profile without confirmation
+        #[arg(short, long)]
+        force: bool,
     },
     /// Switch to a profile
     Switch {

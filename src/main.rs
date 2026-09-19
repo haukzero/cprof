@@ -136,7 +136,7 @@ fn run_target_command_with_repository(
             filename,
             editor,
         } => target::edit::run(&target, name, filename, editor),
-        TargetCommand::Remove { names } => target::remove::run(&target, names),
+        TargetCommand::Remove { names, force } => target::remove::run(&target, names, force),
         TargetCommand::Switch { name, force } => target::switch::run(&target, name, force),
         TargetCommand::Clean { force } => target::clean::run(&target, force),
         TargetCommand::Where { name, filename } => target::where_::run(&target, name, filename),

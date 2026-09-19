@@ -47,7 +47,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> switch [name] [-f]` | 切换 profile |
 | `cprof <target> create [name] [-c profile] [--editor program] [--editor-arg arg]...` | 创建并编辑 profile, 可从已有 profile 复制 |
 | `cprof <target> edit [name] [--filename key] [--editor program] [--editor-arg arg]...` | 编辑 profile |
-| `cprof <target> remove [names...]` | 删除 profile, 名称支持 `*` 和 `?` 通配符 |
+| `cprof <target> remove [names...] [-f]` | 删除 profile, 名称支持 `*` 和 `?` 通配符; `-f` 允许删除当前激活项 |
 | `cprof <target> clean [-f]` | 清空所有 profile |
 | `cprof <target> where [name] [--filename key]` | profile 文件实际位置 |
 | `cprof <target> pack [--save path]` | 打包指定 target |
@@ -58,6 +58,7 @@ cargo install --git https://github.com/haukzero/cprof.git
     - Claude 为 `settings`
     - Codex 为 `config` 或 `auth`. 
 - 编辑器按 `--editor`, `VISUAL`, `EDITOR`, 系统默认值的顺序选择. `--editor-arg` 可重复使用以传入参数; `VISUAL` 和 `EDITOR` 也支持带引号的"程序 + 参数"配置.
+- 需要确认的操作在非交互环境中会报错退出; 使用对应命令的 `--force` 明确执行删除或覆盖.
 
 ### 外部 target
 

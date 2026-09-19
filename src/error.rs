@@ -62,6 +62,9 @@ pub enum AppError {
     #[error("UAC elevation was cancelled or failed")]
     ElevationFailed,
 
+    #[error("Confirmation required but no interactive terminal is available; rerun with --force")]
+    ConfirmationRequired,
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

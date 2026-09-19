@@ -69,8 +69,8 @@ pub fn require_profile(target: &TargetSpec, name: &str) -> Result<()> {
 }
 
 pub fn confirm(prompt: &str) -> Result<bool> {
-    if !std::io::stdin().is_terminal() {
-        return Ok(false);
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+        return Err(AppError::ConfirmationRequired);
     }
     Confirm::new()
         .with_prompt(prompt)

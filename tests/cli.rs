@@ -29,6 +29,102 @@ const INVALID_CONFIGS: &[(&str, &str)] = &[
     ),
 ];
 
+fn create_claude_profile(home: &TestHome, name: &str) {
+    home.succeeds(&["claude", "create", name, "--editor", "/bin/true"]);
+}
+
+#[test]
+fn non_interactive_remove_conflict_fails_before_deleting_any_profiles() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "active");
+    create_claude_profile(&home, "inactive");
+
+    let stderr = home.fails(&["claude", "remove", "inactive", "active"]);
+
+    assert!(stderr.contains("Confirmation required"), "{stderr}");
+    assert!(home.path.join(".cprof/profiles/claude/active").is_dir());
+    assert!(home.path.join(".cprof/profiles/claude/inactive").is_dir());
+}
+
+#[test]
+fn forced_remove_deletes_an_active_profile_and_its_link() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "active");
+
+    home.succeeds(&["claude", "remove", "active", "--force"]);
+
+    assert!(!home.path.join(".cprof/profiles/claude/active").exists());
+    assert!(!home.path.join(".claude/settings.json").exists());
+}
+
+#[test]
+fn non_interactive_remove_without_a_conflict_still_succeeds() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "active");
+    create_claude_profile(&home, "inactive");
+
+    home.succeeds(&["claude", "remove", "inactive"]);
+
+    assert!(home.path.join(".cprof/profiles/claude/active").is_dir());
+    assert!(!home.path.join(".cprof/profiles/claude/inactive").exists());
+}
+
+#[test]
+fn non_interactive_clean_requires_force_and_preserves_profiles() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "active");
+
+    let stderr = home.fails(&["claude", "clean"]);
+
+    assert!(stderr.contains("Confirmation required"), "{stderr}");
+    assert!(home.path.join(".cprof/profiles/claude/active").is_dir());
+}
+
+#[test]
+fn non_interactive_unpack_conflict_fails_before_commit() {
+    let source = TestHome::new();
+    create_claude_profile(&source, "existing");
+    create_claude_profile(&source, "incoming");
+    let package = source.path.join("profiles.pkg");
+    source.succeeds(&["claude", "pack", "--save", package.to_str().unwrap()]);
+
+    let destination = TestHome::new();
+    create_claude_profile(&destination, "existing");
+    let stderr = destination.fails(&["claude", "unpack", "--path", package.to_str().unwrap()]);
+
+    assert!(stderr.contains("Confirmation required"), "{stderr}");
+    assert!(
+        destination
+            .path
+            .join(".cprof/profiles/claude/existing")
+            .is_dir()
+    );
+    assert!(
+        !destination
+            .path
+            .join(".cprof/profiles/claude/incoming")
+            .exists()
+    );
+}
+
+#[test]
+fn non_interactive_unpack_without_conflicts_still_succeeds() {
+    let source = TestHome::new();
+    create_claude_profile(&source, "incoming");
+    let package = source.path.join("profiles.pkg");
+    source.succeeds(&["claude", "pack", "--save", package.to_str().unwrap()]);
+
+    let destination = TestHome::new();
+    destination.succeeds(&["claude", "unpack", "--path", package.to_str().unwrap()]);
+
+    assert!(
+        destination
+            .path
+            .join(".cprof/profiles/claude/incoming")
+            .is_dir()
+    );
+}
+
 #[test]
 fn edit_extra_opens_invalid_configs_without_replacing_them() {
     let home = TestHome::new();
