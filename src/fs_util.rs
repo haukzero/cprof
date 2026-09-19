@@ -339,10 +339,13 @@ fn sync_path(path: &Path) -> Result<()> {
     if fs::metadata(path).with_path(path)?.is_dir() {
         return Ok(());
     }
-    File::open(path)
-        .with_path(path)?
-        .sync_all()
-        .with_path(path)?;
+
+    #[cfg(windows)]
+    let file = OpenOptions::new().write(true).open(path).with_path(path)?;
+    #[cfg(not(windows))]
+    let file = File::open(path).with_path(path)?;
+
+    file.sync_all().with_path(path)?;
     Ok(())
 }
 
@@ -409,7 +412,7 @@ pub fn create_symlink(target: &Path, link: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PathTransaction, temporary_sibling};
+    use super::{PathTransaction, atomic_write, temporary_sibling};
     use std::ffi::OsStr;
     use std::fs;
     use std::path::Path;
@@ -464,5 +467,17 @@ mod tests {
         assert!(transaction.commit().is_err());
         assert_eq!(fs::read_to_string(first).unwrap(), "original");
         assert_eq!(fs::read_to_string(second).unwrap(), "concurrent");
+    }
+
+    #[test]
+    fn atomic_write_commits_new_and_existing_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("output");
+
+        atomic_write(&path, b"first").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+
+        atomic_write(&path, b"second").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second");
     }
 }
