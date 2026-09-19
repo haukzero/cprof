@@ -2,7 +2,7 @@
 name = "cprof"
 version = "0.2.3"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "A command-line profile manager for Claude Code and Codex configurations"
 authors = ["haukzero <haukzero1@gmail.com>"]
 license = "MIT"
