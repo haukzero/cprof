@@ -30,6 +30,9 @@ pub enum AppError {
     #[error("Target conflict: {0}")]
     TargetConflict(String),
 
+    #[error("Transaction conflict: {0}")]
+    TransactionConflict(String),
+
     #[error("Unknown resource '{resource}' for target '{target}'")]
     UnknownResource { target: String, resource: String },
 
@@ -47,6 +50,9 @@ pub enum AppError {
 
     #[error("Editor exited with non-zero status")]
     EditorFailed,
+
+    #[error("Edit was not committed; original file was kept: {source}")]
+    EditNotCommitted { source: Box<AppError> },
 
     #[error("UAC elevation was cancelled or failed")]
     ElevationFailed,

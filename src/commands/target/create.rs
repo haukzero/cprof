@@ -1,7 +1,7 @@
 use dialoguer::Input;
 
 use crate::activation::{self, Status};
-use crate::editor;
+use crate::editor::EditSession;
 use crate::error::{AppError, Result};
 use crate::profile;
 use crate::prompt;
@@ -29,13 +29,13 @@ pub fn run(
         }
     };
     profile::create(target, &name, copy_from.as_deref())?;
-    let editor_cmd = editor::resolve_editor(editor_name)?;
     let result = (|| {
+        let mut session = EditSession::new(editor_name)?;
         for resource in target.resources {
             let path = profile::resource_path(target, &name, resource)?;
-            editor::open_editor(&editor_cmd, &path)?;
-            profile::validate_resource_file(&path, resource)?;
+            session.edit(&path, resource.validate)?;
         }
+        session.commit()?;
         Ok::<(), AppError>(())
     })();
     if let Err(error) = result {

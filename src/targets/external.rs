@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::config;
 use crate::error::{AppError, Result};
+use crate::fs_util;
 use crate::paths;
 use crate::style;
 
@@ -242,11 +243,23 @@ pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetC
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
-    let content = fs::read_to_string(&path)?;
-    let configured =
-        toml::from_str::<BTreeMap<String, ExtraTarget>>(&content).map_err(|error| {
-            AppError::Other(format!("Failed to parse '{}': {error}", path.display()))
-        })?;
+    parse_external_configs(&fs::read(&path)?, &path)
+}
+
+pub(crate) fn validate_external_configs_content(content: &[u8]) -> Result<()> {
+    parse_external_configs(content, Path::new(EXTRA_TARGET_FILE)).map(|_| ())
+}
+
+fn parse_external_configs(
+    content: &[u8],
+    source: &Path,
+) -> Result<BTreeMap<String, ExternalTargetConfig>> {
+    let content = std::str::from_utf8(content).map_err(|error| {
+        AppError::Other(format!("Failed to parse '{}': {error}", source.display()))
+    })?;
+    let configured = toml::from_str::<BTreeMap<String, ExtraTarget>>(content).map_err(|error| {
+        AppError::Other(format!("Failed to parse '{}': {error}", source.display()))
+    })?;
     let configs = configured
         .into_iter()
         .map(|(name, target)| {
@@ -258,9 +271,18 @@ pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetC
     Ok(configs)
 }
 
-pub(crate) fn write_external_configs(
+pub(crate) fn stage_external_configs(
+    transaction: &mut fs_util::PathTransaction,
     configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<()> {
+    let content = serialize_external_configs(configs)?;
+    let path = config::extra_target_file()?;
+    transaction
+        .stage_file(&path, "stage", &content, path.exists())
+        .map(|_| ())
+}
+
+fn serialize_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -> Result<Vec<u8>> {
     validate_external_configs(configs)?;
     let mut serialized = BTreeMap::new();
     for (name, config) in configs {
@@ -275,11 +297,7 @@ pub(crate) fn write_external_configs(
     let content = toml::to_string(&serialized).map_err(|error| {
         AppError::Other(format!("Failed to serialize {EXTRA_TARGET_FILE}: {error}"))
     })?;
-    let repository = config::repository_dir()?;
-    let path = config::extra_target_file()?;
-    fs::create_dir_all(repository)?;
-    fs::write(path, content)?;
-    Ok(())
+    Ok(content.into_bytes())
 }
 
 pub(crate) fn external_config_for(target: &TargetSpec) -> Result<Option<ExternalTargetConfig>> {

@@ -1,8 +1,7 @@
-use std::fs;
-
 use crate::config;
-use crate::editor;
+use crate::editor::EditSession;
 use crate::error::Result;
+use crate::targets;
 
 const DEFAULT_TEMPLATE: &[u8] = br#"# Example for extra targets
 # [[example.resources]]
@@ -18,14 +17,13 @@ const DEFAULT_TEMPLATE: &[u8] = br#"# Example for extra targets
 "#;
 
 pub fn run(editor_name: Option<String>) -> Result<()> {
-    let editor_cmd = editor::resolve_editor(editor_name)?;
-    let repository = config::repository_dir()?;
     let path = config::extra_target_file()?;
-
-    fs::create_dir_all(repository)?;
-    if !path.exists() {
-        fs::File::create(&path)?;
-        fs::write(&path, DEFAULT_TEMPLATE)?;
-    }
-    editor::open_editor(&editor_cmd, &path)
+    let mut session = EditSession::new(editor_name)?;
+    session.edit_or_create(
+        &path,
+        DEFAULT_TEMPLATE,
+        targets::validate_external_configs_content,
+    )?;
+    session.commit()?;
+    Ok(())
 }

@@ -11,7 +11,7 @@ use crate::paths;
 pub(crate) use external::{
     ExternalResourceConfig, ExternalTargetConfig, external_config_for, find_external_config,
     merge_external_configs, read_external_configs, spec_from_external_config,
-    validate_external_config, write_external_configs,
+    stage_external_configs, validate_external_config, validate_external_configs_content,
 };
 
 pub type Validator = fn(&[u8]) -> Result<()>;

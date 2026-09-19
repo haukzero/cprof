@@ -174,9 +174,10 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
         None => None,
     };
 
-    fs::create_dir_all(&dir)?;
+    let mut transaction = fs_util::PathTransaction::new();
+    let staging = transaction.stage_directory(&dir, false)?;
     let result = target.resources.iter().try_for_each(|resource| {
-        let destination = config::profile_resource(target, name, resource)?;
+        let destination = resource_path_in(&staging, resource)?;
         if let Some(source_dir) = &source_dir {
             let source_path = resource_path_in(source_dir, resource)?;
             if source_path.exists() {
@@ -188,10 +189,14 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
         Ok::<(), AppError>(())
     });
     if let Err(error) = result {
-        let _ = fs_util::remove_dir_if_exists(&dir);
-        return Err(error);
+        return Err(transaction.cancel(error));
     }
-    Ok(())
+    transaction.commit().map_err(|error| match error {
+        AppError::TransactionConflict(_) if dir.exists() => {
+            AppError::ProfileExists(name.to_string())
+        }
+        error => error,
+    })
 }
 
 pub fn delete(target: &TargetSpec, name: &str) -> Result<()> {
@@ -210,37 +215,48 @@ pub fn replace(
     resources: &[ProfileResource],
     overwrite: bool,
 ) -> Result<()> {
+    let mut transaction = fs_util::PathTransaction::new();
+    if let Err(error) = stage_replace(&mut transaction, target, name, resources, overwrite) {
+        return Err(transaction.cancel(error));
+    }
+    transaction.commit()
+}
+
+pub(crate) fn stage_replace(
+    transaction: &mut fs_util::PathTransaction,
+    target: &TargetSpec,
+    name: &str,
+    resources: &[ProfileResource],
+    overwrite: bool,
+) -> Result<()> {
+    validate_replacement(target, name, resources, overwrite)?;
+    stage_validated_replace(transaction, target, name, resources, overwrite)
+}
+
+pub(crate) fn validate_replacement(
+    target: &TargetSpec,
+    name: &str,
+    resources: &[ProfileResource],
+    overwrite: bool,
+) -> Result<()> {
     validate_name(name)?;
     let destination = config::profile_dir(target, name)?;
     if destination.exists() && !overwrite {
         return Err(AppError::ProfileExists(name.to_string()));
     }
-    validate_resources(target, name, resources)?;
+    validate_resources(target, name, resources)
+}
 
-    let staging_name = format!(".{name}.incoming-{}", std::process::id());
-    let staging_dir =
-        paths::join_storage_under(&config::profiles_dir(target)?, Path::new(&staging_name))?;
-    let rollback_dir = staging_dir.with_extension("rollback");
-    fs_util::remove_dir_if_exists(&staging_dir)?;
-    fs_util::remove_dir_if_exists(&rollback_dir)?;
-    fs::create_dir_all(&staging_dir)?;
-
-    if let Err(error) = write_resources(&staging_dir, resources) {
-        let _ = fs::remove_dir_all(&staging_dir);
-        return Err(error);
-    }
-
-    if overwrite {
-        fs::rename(&destination, &rollback_dir)?;
-    }
-    if let Err(error) = fs::rename(&staging_dir, &destination) {
-        if overwrite {
-            let _ = fs::rename(&rollback_dir, &destination);
-        }
-        return Err(error.into());
-    }
-    let _ = fs_util::remove_dir_if_exists(&rollback_dir);
-    Ok(())
+pub(crate) fn stage_validated_replace(
+    transaction: &mut fs_util::PathTransaction,
+    target: &TargetSpec,
+    name: &str,
+    resources: &[ProfileResource],
+    overwrite: bool,
+) -> Result<()> {
+    let destination = config::profile_dir(target, name)?;
+    let staging = transaction.stage_directory(&destination, overwrite)?;
+    write_resources(&staging, resources)
 }
 
 pub fn read(target: &'static TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {

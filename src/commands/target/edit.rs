@@ -1,6 +1,4 @@
-use std::fs;
-
-use crate::editor;
+use crate::editor::EditSession;
 use crate::error::{AppError, Result};
 use crate::profile;
 use crate::prompt;
@@ -19,8 +17,7 @@ pub fn run(
         Some(filename) => vec![target.resource(&filename)?],
         None => target.resources.iter().collect(),
     };
-    let editor_cmd = editor::resolve_editor(editor_name)?;
-    let mut changed = false;
+    let mut session = EditSession::new(editor_name)?;
     for resource in resources {
         let path = profile::resource_path(target, &name, resource)?;
         if !path.exists() {
@@ -29,14 +26,9 @@ pub fn run(
             }
             continue;
         }
-        let before = fs::read(&path)?;
-        editor::open_editor(&editor_cmd, &path)?;
-        let after = fs::read(&path)?;
-        if after != before {
-            profile::validate_resource_file(&path, resource)?;
-            changed = true;
-        }
+        session.edit(&path, resource.validate)?;
     }
+    let changed = session.commit()?;
     if changed {
         println!("{} Updated profile '{}'", style::success("Done!"), name);
     } else {

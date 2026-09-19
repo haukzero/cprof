@@ -1,7 +1,7 @@
-use std::fs;
 use std::path::Path;
 
 use crate::error::{AppError, Result};
+use crate::fs_util;
 use crate::package;
 use crate::profile;
 use crate::targets::TargetSpec;
@@ -31,7 +31,7 @@ pub(crate) fn collect_target(
 
 pub(crate) fn write_package(output: &Path, packages: &[package::TargetPackage]) -> Result<()> {
     let data = package::encode(packages)?;
-    fs::write(output, &data)?;
+    fs_util::atomic_write(output, &data)?;
     let profile_count = packages
         .iter()
         .map(|package| package.profiles.len())

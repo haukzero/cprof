@@ -32,16 +32,112 @@ const INVALID_CONFIGS: &[(&str, &str)] = &[
 #[test]
 fn edit_extra_opens_invalid_configs_without_replacing_them() {
     let home = TestHome::new();
-    let editor = home.path.join("test editor");
-    fs::write(&editor, "#!/bin/sh\nprintf '%s\\n' \"$1\"\n").unwrap();
-    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
 
     for &(config, _) in INVALID_CONFIGS {
         home.set_config(config);
-        let output = home.succeeds(&["edit-extra", "--editor", editor.to_str().unwrap()]);
-        assert_eq!(output.trim(), home.config_path().to_str().unwrap());
+        home.succeeds(&["edit-extra", "--editor", "/bin/true"]);
         assert_eq!(fs::read_to_string(home.config_path()).unwrap(), config);
     }
+}
+
+#[test]
+fn invalid_profile_edit_keeps_every_original_and_removes_temporary_files() {
+    let home = TestHome::new();
+    home.succeeds(&["codex", "create", "test", "--editor", "/bin/true"]);
+    let editor = home.path.join("invalid editor");
+    fs::write(
+        &editor,
+        "#!/bin/sh\ncase \"$1\" in\n  *config.toml*) printf 'model = \\\"changed\\\"\\n' > \"$1\" ;;\n  *) printf '{' > \"$1\" ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let stderr = home.fails(&[
+        "codex",
+        "edit",
+        "test",
+        "--editor",
+        editor.to_str().unwrap(),
+    ]);
+    let profile = home.path.join(".cprof/profiles/codex/test");
+    assert_eq!(
+        fs::read_to_string(profile.join("config.toml")).unwrap(),
+        "# Codex configuration\n"
+    );
+    assert_eq!(
+        fs::read_to_string(profile.join("auth.json")).unwrap(),
+        "{}\n"
+    );
+    let temporary_files = fs::read_dir(&profile)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".cprof-edit-")
+        })
+        .collect::<Vec<_>>();
+    assert!(temporary_files.is_empty(), "{temporary_files:?}");
+    assert!(stderr.contains("original file was kept"), "{stderr}");
+}
+
+#[test]
+fn invalid_extra_target_edit_keeps_original_and_removes_temporary_file() {
+    let home = TestHome::new();
+    let original = "[demo]\n";
+    home.set_config(original);
+    let editor = home.path.join("invalid config editor");
+    fs::write(&editor, "#!/bin/sh\nprintf '[broken' > \"$1\"\n").unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let stderr = home.fails(&["edit-extra", "--editor", editor.to_str().unwrap()]);
+
+    assert_eq!(fs::read_to_string(home.config_path()).unwrap(), original);
+    let temporary_files = fs::read_dir(home.path.join(".cprof"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".cprof-edit-")
+        })
+        .collect::<Vec<_>>();
+    assert!(temporary_files.is_empty(), "{temporary_files:?}");
+    assert!(stderr.contains("original file was kept"), "{stderr}");
+}
+
+#[test]
+fn edit_extra_validates_before_creating_the_config_file() {
+    let home = TestHome::new();
+    let editor = home.path.join("invalid new config editor");
+    fs::write(&editor, "#!/bin/sh\nprintf '[broken' > \"$1\"\n").unwrap();
+    fs::set_permissions(&editor, fs::Permissions::from_mode(0o700)).unwrap();
+
+    home.fails(&["edit-extra", "--editor", editor.to_str().unwrap()]);
+
+    assert!(!home.config_path().exists());
+    let entries = fs::read_dir(home.path.join(".cprof"))
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(entries, 0);
+}
+
+#[test]
+fn edit_extra_creates_the_valid_default_transactionally() {
+    let home = TestHome::new();
+
+    home.succeeds(&["edit-extra", "--editor", "/bin/true"]);
+
+    let content = fs::read_to_string(home.config_path()).unwrap();
+    assert!(content.contains("Example for extra targets"));
+    assert!(
+        fs::read_dir(home.path.join(".cprof"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .all(|name| !name.to_string_lossy().contains(".cprof-edit-"))
+    );
 }
 
 #[test]
@@ -157,4 +253,42 @@ fn root_unpack_rejects_duplicate_ids_created_by_merging() {
         config
     );
     assert!(!destination.path.join(".cprof/profiles").exists());
+}
+
+#[test]
+fn root_unpack_staging_failure_leaves_config_and_profiles_unchanged() {
+    let source = TestHome::new();
+    source.set_config(
+        "[demo]\nid = 'demo-id'\n[[demo.resources]]\nfilename = 'settings.conf'\nactive_path = '.demo/settings.conf'\n",
+    );
+    let codex = source.path.join(".cprof/profiles/codex/test");
+    fs::create_dir_all(&codex).unwrap();
+    fs::write(codex.join("config.toml"), "# valid\n").unwrap();
+    fs::write(codex.join("auth.json"), "{}\n").unwrap();
+    let external = source.path.join(".cprof/profiles/demo-id/test");
+    fs::create_dir_all(&external).unwrap();
+    fs::write(external.join("settings.conf"), "incoming").unwrap();
+    source.succeeds(&["pack"]);
+
+    let destination = TestHome::new();
+    let profiles = destination.path.join(".cprof/profiles");
+    fs::create_dir_all(&profiles).unwrap();
+    fs::write(profiles.join("demo-id"), "blocks the target directory").unwrap();
+    let stderr = destination.fails(&[
+        "unpack",
+        "--path",
+        source.path.join("cprof.pkg").to_str().unwrap(),
+        "--force",
+    ]);
+
+    assert!(
+        stderr.contains("Unsafe path") || stderr.contains("IO error"),
+        "{stderr}"
+    );
+    assert!(!destination.config_path().exists());
+    assert!(!profiles.join("codex/test").exists());
+    assert_eq!(
+        fs::read_to_string(profiles.join("demo-id")).unwrap(),
+        "blocks the target directory"
+    );
 }

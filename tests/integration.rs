@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, Barrier, OnceLock};
 
 use clap::Parser;
 use cprof::activation;
@@ -301,6 +301,42 @@ fn copy_from_requires_an_existing_profile() {
 
     assert!(matches!(error, cprof::error::AppError::ProfileNotFound(name) if name == missing));
     assert!(!profile::exists(target, &destination).unwrap());
+}
+
+#[test]
+#[serial]
+fn concurrent_profile_creation_has_a_single_winner() {
+    let target = claude();
+    for iteration in 0..16 {
+        let name = unique_name(&format!("concurrent_create_{iteration}"));
+        let barrier = Arc::new(Barrier::new(3));
+        let handles = (0..2)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                let name = name.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    profile::create(target, &name, None)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        barrier.wait();
+        let results = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(cprof::error::AppError::ProfileExists(_))))
+                .count(),
+            1
+        );
+        assert!(profile::is_complete(target, &name).unwrap());
+        cleanup(target, &name);
+    }
 }
 
 #[test]

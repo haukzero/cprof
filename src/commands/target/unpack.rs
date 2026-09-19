@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use crate::error::{AppError, Result};
+use crate::fs_util::PathTransaction;
 use crate::package;
 use crate::profile;
 use crate::prompt;
@@ -16,19 +18,67 @@ pub fn run(target: &'static TargetSpec, path: Option<String>, force: bool) -> Re
         .ok_or_else(|| {
             AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
         })?;
-    let target_configs = merge_target_configs(std::slice::from_ref(&package), force)?;
+    let (target_configs, configs_changed) =
+        merge_target_configs(std::slice::from_ref(&package), force)?;
     let target = resolve_target(&package, &target_configs)?;
     let profiles = remap_profiles(target, package.profiles)?;
-    unpack_target(target, profiles, force)?;
+    let plan = prepare_unpack(target, profiles, force)?;
+    commit_unpack(
+        std::slice::from_ref(&plan),
+        &target_configs,
+        configs_changed,
+    )?;
+    plan.report();
     Ok(())
 }
 
-pub(crate) fn unpack_target(
+pub(crate) struct UnpackPlan {
+    target: &'static TargetSpec,
+    profiles: Vec<PlannedProfile>,
+    skipped: usize,
+}
+
+struct PlannedProfile {
+    package: package::PackageProfile,
+    overwrite: bool,
+}
+
+impl UnpackPlan {
+    pub(crate) fn stage(&self, transaction: &mut PathTransaction) -> Result<()> {
+        for planned in &self.profiles {
+            profile::stage_validated_replace(
+                transaction,
+                self.target,
+                &planned.package.name,
+                &planned.package.resources,
+                planned.overwrite,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn report(&self) -> (usize, usize) {
+        for planned in &self.profiles {
+            println!("Unpacked '{}'", planned.package.name);
+        }
+        println!(
+            "{}",
+            style::heading(&format!("Unpacked target '{}'", self.target.id))
+        );
+        (self.profiles.len(), self.skipped)
+    }
+}
+
+pub(crate) fn prepare_unpack(
     target: &'static TargetSpec,
     profiles: Vec<package::PackageProfile>,
     force: bool,
-) -> Result<(usize, usize)> {
-    let mut unpacked = 0;
+) -> Result<UnpackPlan> {
+    println!(
+        "{}",
+        style::heading(&format!("Unpacking target '{}':", target.id))
+    );
+    let mut planned = Vec::with_capacity(profiles.len());
     let mut skipped = 0;
     for package_profile in profiles {
         let exists = profile::exists(target, &package_profile.name)?;
@@ -47,27 +97,47 @@ pub(crate) fn unpack_target(
                 continue;
             }
         }
-
-        profile::replace(
+        profile::validate_replacement(
             target,
             &package_profile.name,
             &package_profile.resources,
             exists,
         )?;
-        println!("Unpacked '{}'", package_profile.name);
-        unpacked += 1;
+        planned.push(PlannedProfile {
+            package: package_profile,
+            overwrite: exists,
+        });
     }
-    println!(
-        "{}",
-        style::heading(&format!("Unpacked target '{}'", target.id))
-    );
-    Ok((unpacked, skipped))
+    Ok(UnpackPlan {
+        target,
+        profiles: planned,
+        skipped,
+    })
+}
+
+pub(crate) fn commit_unpack(
+    plans: &[UnpackPlan],
+    target_configs: &BTreeMap<String, ExternalTargetConfig>,
+    configs_changed: bool,
+) -> Result<()> {
+    let mut transaction = PathTransaction::new();
+    for plan in plans {
+        if let Err(error) = plan.stage(&mut transaction) {
+            return Err(transaction.cancel(error));
+        }
+    }
+    if configs_changed
+        && let Err(error) = targets::stage_external_configs(&mut transaction, target_configs)
+    {
+        return Err(transaction.cancel(error));
+    }
+    transaction.commit()
 }
 
 pub(crate) fn merge_target_configs(
     packages: &[package::TargetPackage],
     force: bool,
-) -> Result<std::collections::BTreeMap<String, ExternalTargetConfig>> {
+) -> Result<(BTreeMap<String, ExternalTargetConfig>, bool)> {
     let packaged = packages
         .iter()
         .filter_map(|package| package.target_config.clone())
@@ -76,10 +146,8 @@ pub(crate) fn merge_target_configs(
     let merged = targets::merge_external_configs(local.clone(), &packaged, |prompt| {
         should_use_packaged(prompt, force)
     })?;
-    if merged != local {
-        targets::write_external_configs(&merged)?;
-    }
-    Ok(merged)
+    let changed = merged != local;
+    Ok((merged, changed))
 }
 
 pub(crate) fn read_package(path: Option<String>) -> Result<Vec<package::TargetPackage>> {
