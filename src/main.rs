@@ -81,9 +81,9 @@ fn run() -> Result<(), RunError> {
             root::clean::run(&targets, args.force, args.extra_toml)?;
         }
         RootCommand::EditExtra(args) => root::edit_extra::run(args.editor)?,
-        RootCommand::Targets => {
+        RootCommand::Targets(args) => {
             let targets = TargetRepository::load()?;
-            root::targets::run(&targets)?;
+            root::targets::run(&targets, args.json)?;
         }
         RootCommand::External(args) => {
             let target_id = args.first().cloned().ok_or_else(|| {

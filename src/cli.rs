@@ -66,7 +66,7 @@ pub enum RootCommand {
     /// Edit the external target configuration file
     EditExtra(EditExtraArgs),
     /// List all registered targets
-    Targets,
+    Targets(TargetsArgs),
 
     /// Manage a target configured in ~/.cprof/extra-target.toml
     #[command(external_subcommand)]
@@ -110,6 +110,13 @@ pub struct CleanArgs {
     /// Also remove ~/.cprof/extra-target.toml
     #[arg(long)]
     pub extra_toml: bool,
+}
+
+#[derive(Args)]
+pub struct TargetsArgs {
+    /// Print targets as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args)]

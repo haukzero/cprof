@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexSet;
+use serde::Serialize;
 
 use crate::config;
 use crate::error::{AppError, IoContext, Result};
@@ -17,7 +18,7 @@ pub struct ProfileInfo {
     pub complete: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ProfileCounts {
     pub total: usize,
     pub incomplete: usize,

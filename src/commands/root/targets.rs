@@ -3,14 +3,19 @@ use crate::config;
 use crate::error::Result;
 use crate::profile;
 use crate::targets;
+use serde::Serialize;
 use unicode_width::UnicodeWidthStr;
 
+#[derive(Serialize)]
 struct TargetRow {
     name: String,
+    #[serde(rename = "type")]
     kind: &'static str,
-    profiles: String,
+    profiles: profile::ProfileCounts,
+    active: Option<String>,
     store_dir: String,
-    active: String,
+    #[serde(skip)]
+    profiles_display: String,
 }
 
 struct TableColumn<T> {
@@ -25,18 +30,16 @@ impl TargetRow {
         } else {
             "extra"
         };
-        let profiles = profile::counts(target)?.to_string();
+        let profiles = profile::counts(target)?;
         let store_dir = config::profiles_dir(target)?.display().to_string();
-        let active = match activation::active_name(target)? {
-            Some(name) => name,
-            None => "(none)".to_string(),
-        };
+        let active = activation::active_name(target)?;
         Ok(TargetRow {
             name: target.id.to_string(),
             kind,
+            profiles_display: profiles.to_string(),
             profiles,
-            store_dir,
             active,
+            store_dir,
         })
     }
 
@@ -53,11 +56,11 @@ impl TargetRow {
     }
 
     fn profiles(&self) -> &str {
-        &self.profiles
+        &self.profiles_display
     }
 
     fn active(&self) -> &str {
-        &self.active
+        self.active.as_deref().unwrap_or("(none)")
     }
 }
 
@@ -84,14 +87,18 @@ const TARGET_COLUMNS: &[TableColumn<TargetRow>] = &[
     },
 ];
 
-pub fn run(targets: &targets::TargetRepository) -> Result<()> {
+pub fn run(targets: &targets::TargetRepository, json: bool) -> Result<()> {
     let rows = targets
         .all()
         .iter()
         .map(|target| TargetRow::new(target))
         .collect::<Result<Vec<_>>>()?;
 
-    print!("{}", render_table(&rows, TARGET_COLUMNS));
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+    } else {
+        print!("{}", render_table(&rows, TARGET_COLUMNS));
+    }
     Ok(())
 }
 
@@ -162,9 +169,13 @@ mod tests {
             &[TargetRow {
                 name: "codex".to_string(),
                 kind: "built-in",
-                profiles: "3 (1 incomplete)".to_string(),
+                profiles: crate::profile::ProfileCounts {
+                    total: 3,
+                    incomplete: 1,
+                },
+                profiles_display: "3 (1 incomplete)".to_string(),
                 store_dir: "/tmp/profiles/codex".to_string(),
-                active: "(none)".to_string(),
+                active: None,
             }],
             TARGET_COLUMNS,
         );
@@ -214,15 +225,23 @@ mod tests {
                 TargetRow {
                     name: "中文".to_string(),
                     kind: "extra",
-                    profiles: "1 (0 incomplete)".to_string(),
-                    active: "配置".to_string(),
+                    profiles: crate::profile::ProfileCounts {
+                        total: 1,
+                        incomplete: 0,
+                    },
+                    profiles_display: "1 (0 incomplete)".to_string(),
+                    active: Some("配置".to_string()),
                     store_dir: "/tmp/profiles/chinese".to_string(),
                 },
                 TargetRow {
                     name: "ascii".to_string(),
                     kind: "extra",
-                    profiles: "1 (0 incomplete)".to_string(),
-                    active: "active".to_string(),
+                    profiles: crate::profile::ProfileCounts {
+                        total: 1,
+                        incomplete: 0,
+                    },
+                    profiles_display: "1 (0 incomplete)".to_string(),
+                    active: Some("active".to_string()),
                     store_dir: "/tmp/profiles/ascii".to_string(),
                 },
             ],

@@ -48,6 +48,23 @@ fn profile_counts_include_incomplete_profiles() {
         .expect("targets output should contain claude");
     assert!(claude.contains("2 (1 incomplete)"), "{targets}");
     assert!(targets.contains("profile count"), "{targets}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&home.succeeds(&["targets", "--json"])).unwrap();
+    let claude = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|target| target["name"] == "claude")
+        .expect("JSON output should contain claude");
+    assert_eq!(claude["type"], "built-in");
+    assert_eq!(claude["profiles"]["total"], 2);
+    assert_eq!(claude["profiles"]["incomplete"], 1);
+    assert_eq!(claude["active"], "complete");
+    assert_eq!(
+        claude["store_dir"],
+        home.path.join(".cprof/profiles/claude").to_str().unwrap()
+    );
 }
 
 #[test]

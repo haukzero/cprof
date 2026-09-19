@@ -28,7 +28,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target 的 profile |
 | `cprof edit-extra [--editor program] [--editor-arg arg]...` | 编辑外部 target 配置文件 |
-| `cprof targets` | 列出所有 target 及其相关信息 |
+| `cprof targets [--json]` | 列出所有 target 及其相关信息, `--json` 输出 JSON |
 
 - Root command `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`.
 - Root command `clean` 默认保留 `extra-target.toml`, 使用 `--extra-toml` 一并删除.
