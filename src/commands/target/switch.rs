@@ -1,13 +1,14 @@
 use crate::activation;
 use crate::elevate;
 use crate::error::{AppError, Result};
+use crate::profile;
 use crate::prompt;
 use crate::style;
 use crate::targets::TargetSpec;
 
 pub fn run(target: &TargetSpec, name: Option<String>, force: bool) -> Result<()> {
     let name = prompt::select_profile(target, name, "Profile name to switch to (type to search)")?;
-    prompt::require_profile(target, &name)?;
+    profile::require_exists(target, &name)?;
     let switched = match activation::switch(target, &name, force) {
         Ok(value) => value,
         Err(error) if elevate::is_privilege_error(&error) => {

@@ -5,7 +5,7 @@ use crate::targets::TargetSpec;
 
 pub fn run(target: &TargetSpec, name: Option<String>, filename: Option<String>) -> Result<()> {
     let name = prompt::select_profile(target, name, "Profile name (type to search)")?;
-    prompt::require_profile(target, &name)?;
+    profile::require_exists(target, &name)?;
     match filename {
         Some(filename) => println!(
             "{}",

@@ -1,5 +1,3 @@
-use dialoguer::Input;
-
 use crate::activation::{self, Status};
 use crate::cli::EditorOptions;
 use crate::editor::EditSession;
@@ -18,10 +16,7 @@ pub fn run(
     let (name, copy_from) = match name {
         Some(name) => (name, copy_from),
         None => {
-            let name = Input::new()
-                .with_prompt("Profile name")
-                .interact_text()
-                .map_err(|e| AppError::Other(e.to_string()))?;
+            let name = prompt::input("Profile name")?;
             let copy_from = match copy_from {
                 Some(source) => Some(source),
                 None => prompt::select_copy_source(target)?,

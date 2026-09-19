@@ -48,6 +48,13 @@ pub fn exists(target: &TargetSpec, name: &str) -> Result<bool> {
     Ok(config::profile_dir(target, name)?.is_dir())
 }
 
+pub(crate) fn require_exists(target: &TargetSpec, name: &str) -> Result<()> {
+    if !exists(target, name)? {
+        return Err(AppError::ProfileNotFound(name.to_string()));
+    }
+    Ok(())
+}
+
 pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
     validate_name(name)?;
     let dir = config::profile_dir(target, name)?;

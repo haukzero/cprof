@@ -24,13 +24,13 @@ cargo install --git https://github.com/haukzero/cprof.git
 
 | 命令 | 说明 |
 |------|------|
-| `cprof pack [--save path]` | 一次打包所有 target |
+| `cprof pack [--save path] [--select [target]]...` | 打包所有或选中的 target |
 | `cprof unpack [--path path] [-f]` | 一次解包所有 target |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target 的 profile |
 | `cprof edit-extra [--editor program] [--editor-arg arg]...` | 编辑外部 target 配置文件 |
 | `cprof targets [--json]` | 列出所有 target 及其相关信息, `--json` 输出 JSON |
 
-- Root command `pack` 和 `unpack` 会一次处理所有 target, 默认包文件为 `cprof.pkg`.
+- Root command `pack` 默认一次打包所有 target; 重复传入 `--select target` 可只打包指定 target, 例如 `cprof pack --select claude --select codex`. 单独传入 `--select` 时会打开交互式多选. `unpack` 会处理包内所有 target, 默认包文件为 `cprof.pkg`.
 - Root command `clean` 默认保留 `extra-target.toml`, 使用 `--extra-toml` 一并删除.
 - Root command `edit-extra` 会创建(如果不存在)并打开 `~/.cprof/extra-target.toml`; 使用 `--editor` 可手动指定编辑器. 配置存在语法错误或 target 定义冲突时, 仍可使用此命令编辑修复.
 

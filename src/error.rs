@@ -28,6 +28,9 @@ pub enum AppError {
     #[error("Target conflict: {0}")]
     TargetConflict(String),
 
+    #[error("No targets selected")]
+    NoTargetsSelected,
+
     #[error("Unknown resource '{resource}' for target '{target}'")]
     UnknownResource { target: String, resource: String },
 
@@ -74,8 +77,11 @@ pub enum AppError {
     #[error("UAC elevation was cancelled or failed")]
     ElevationFailed,
 
-    #[error("Confirmation required but no interactive terminal is available; rerun with --force")]
-    ConfirmationRequired,
+    #[error("Interactive input required but no interactive terminal is available")]
+    InteractiveInputRequired,
+
+    #[error("Interactive prompt failed: {0}")]
+    Prompt(#[from] dialoguer::Error),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

@@ -70,7 +70,7 @@ fn run() -> Result<(), RunError> {
         RootCommand::Codex(args) => run_target_command("codex", args.command)?,
         RootCommand::Pack(args) => {
             let targets = TargetRepository::load()?;
-            root::pack::run(&targets, args.save)?;
+            root::pack::run(&targets, args.options.save, args.select)?;
         }
         RootCommand::Unpack(args) => {
             let targets = TargetRepository::load()?;

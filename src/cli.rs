@@ -57,8 +57,8 @@ pub enum RootCommand {
     #[command(name = "codex")]
     Codex(TargetArgs),
 
-    /// Pack profiles from every registered target
-    Pack(PackArgs),
+    /// Pack profiles from registered targets
+    Pack(RootPackArgs),
     /// Unpack profiles for every target in a package
     Unpack(UnpackArgs),
     /// Remove all profiles and optionally the external target configuration
@@ -86,10 +86,19 @@ pub struct TargetCli {
 }
 
 #[derive(Args)]
-pub struct PackArgs {
+pub struct PackOptions {
     /// Output file path (default: ./cprof.pkg)
     #[arg(long, value_name = "PATH")]
     pub save: Option<String>,
+}
+
+#[derive(Args)]
+pub struct RootPackArgs {
+    #[command(flatten)]
+    pub options: PackOptions,
+    /// Select target(s) to pack
+    #[arg(long, value_name = "TARGET", num_args = 0..=1)]
+    pub select: Option<Vec<String>>,
 }
 
 #[derive(Args)]
@@ -201,7 +210,7 @@ pub enum TargetCommand {
         filename: Option<String>,
     },
     /// Pack profiles into a portable package
-    Pack(PackArgs),
+    Pack(PackOptions),
     /// Unpack a portable package
     Unpack(UnpackArgs),
 }
@@ -210,7 +219,9 @@ pub enum TargetCommand {
 mod tests {
     use std::ffi::OsString;
 
-    use super::{command_with_extra_targets, is_root_help_request};
+    use clap::Parser;
+
+    use super::{Cli, RootCommand, command_with_extra_targets, is_root_help_request};
 
     #[test]
     fn extra_targets_are_listed_in_root_help() {
@@ -234,5 +245,36 @@ mod tests {
             let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
             assert!(!is_root_help_request(&args), "{args:?}");
         }
+    }
+
+    #[test]
+    fn root_pack_select_accepts_repeated_targets() {
+        let cli = Cli::try_parse_from([
+            "cprof", "pack", "--select", "a", "--select", "b", "--select", "d",
+        ])
+        .unwrap();
+
+        let RootCommand::Pack(args) = cli.command else {
+            panic!("expected root pack command");
+        };
+        assert_eq!(
+            args.select,
+            Some(vec!["a".to_string(), "b".to_string(), "d".to_string()])
+        );
+    }
+
+    #[test]
+    fn root_pack_bare_select_is_distinct_from_no_select() {
+        let bare = Cli::try_parse_from(["cprof", "pack", "--select"]).unwrap();
+        let RootCommand::Pack(bare) = bare.command else {
+            panic!("expected root pack command");
+        };
+        assert_eq!(bare.select, Some(Vec::new()));
+
+        let absent = Cli::try_parse_from(["cprof", "pack"]).unwrap();
+        let RootCommand::Pack(absent) = absent.command else {
+            panic!("expected root pack command");
+        };
+        assert_eq!(absent.select, None);
     }
 }

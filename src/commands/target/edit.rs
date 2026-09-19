@@ -13,7 +13,7 @@ pub fn run(
     editor: EditorOptions,
 ) -> Result<()> {
     let name = prompt::select_profile(target, name, "Profile to edit (type to search)")?;
-    prompt::require_profile(target, &name)?;
+    profile::require_exists(target, &name)?;
     let resources: Vec<&ResourceSpec> = match filename {
         Some(filename) => vec![target.resource(&filename)?],
         None => target.resources.iter().collect(),

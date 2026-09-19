@@ -75,7 +75,7 @@ fn non_interactive_remove_conflict_fails_before_deleting_any_profiles() {
 
     let stderr = home.fails(&["claude", "remove", "inactive", "active"]);
 
-    assert!(stderr.contains("Confirmation required"), "{stderr}");
+    assert!(stderr.contains("Interactive input required"), "{stderr}");
     assert!(home.path.join(".cprof/profiles/claude/active").is_dir());
     assert!(home.path.join(".cprof/profiles/claude/inactive").is_dir());
 }
@@ -110,7 +110,7 @@ fn non_interactive_clean_requires_force_and_preserves_profiles() {
 
     let stderr = home.fails(&["claude", "clean"]);
 
-    assert!(stderr.contains("Confirmation required"), "{stderr}");
+    assert!(stderr.contains("Interactive input required"), "{stderr}");
     assert!(home.path.join(".cprof/profiles/claude/active").is_dir());
 }
 
@@ -126,7 +126,7 @@ fn non_interactive_unpack_conflict_fails_before_commit() {
     create_claude_profile(&destination, "existing");
     let stderr = destination.fails(&["claude", "unpack", "--path", package.to_str().unwrap()]);
 
-    assert!(stderr.contains("Confirmation required"), "{stderr}");
+    assert!(stderr.contains("Interactive input required"), "{stderr}");
     assert!(
         destination
             .path
@@ -368,6 +368,82 @@ fn static_cli_information_does_not_require_valid_config() {
     ] {
         assert!(!home.succeeds(args).is_empty());
     }
+}
+
+#[test]
+fn root_pack_can_select_multiple_targets() {
+    let source = TestHome::new();
+    source.set_config("[demo]\n");
+    create_claude_profile(&source, "claude-profile");
+    source.succeeds(&["codex", "create", "codex-profile", "--editor", "/bin/true"]);
+    fs::create_dir_all(source.path.join(".cprof/profiles/demo/demo-profile")).unwrap();
+
+    let output = source.succeeds(&[
+        "pack", "--select", "claude", "--select", "demo", "--select", "claude",
+    ]);
+    assert!(output.contains("from 2 target(s)"), "{output}");
+
+    let destination = TestHome::new();
+    destination.succeeds(&[
+        "unpack",
+        "--path",
+        source.path.join("cprof.pkg").to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(
+        destination
+            .path
+            .join(".cprof/profiles/claude/claude-profile")
+            .is_dir()
+    );
+    assert!(
+        destination
+            .path
+            .join(".cprof/profiles/demo/demo-profile")
+            .is_dir()
+    );
+    assert!(
+        !destination
+            .path
+            .join(".cprof/profiles/codex/codex-profile")
+            .exists()
+    );
+    assert!(
+        fs::read_to_string(destination.config_path())
+            .unwrap()
+            .contains("[demo]")
+    );
+}
+
+#[test]
+fn root_pack_rejects_an_unknown_selected_target_before_writing() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "test");
+
+    let stderr = home.fails(&["pack", "--select", "missing"]);
+
+    assert!(stderr.contains("Unknown target 'missing'"), "{stderr}");
+    assert!(!home.path.join("cprof.pkg").exists());
+}
+
+#[test]
+fn non_interactive_prompts_report_a_consistent_error() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "test");
+
+    for args in [
+        &["pack", "--select"][..],
+        &["claude", "switch"],
+        &["claude", "where"],
+        &["claude", "create"],
+    ] {
+        let stderr = home.fails(args);
+        assert!(
+            stderr.contains("Interactive input required"),
+            "{args:?}: {stderr}"
+        );
+    }
+    assert!(!home.path.join("cprof.pkg").exists());
 }
 
 #[test]

@@ -17,7 +17,7 @@ pub fn run(target: &TargetSpec, names: Vec<String>, force: bool) -> Result<()> {
     };
 
     for name in &names {
-        prompt::require_profile(target, name)?;
+        profile::require_exists(target, name)?;
     }
 
     let active = activation::active_name(target)?;
