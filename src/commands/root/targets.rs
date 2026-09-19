@@ -1,11 +1,13 @@
 use crate::activation;
 use crate::config;
 use crate::error::Result;
+use crate::profile;
 use crate::targets;
 
 struct TargetRow {
     name: String,
     kind: &'static str,
+    profiles: String,
     store_dir: String,
     active: String,
 }
@@ -22,6 +24,7 @@ impl TargetRow {
         } else {
             "extra"
         };
+        let profiles = profile::counts(target)?.to_string();
         let store_dir = config::profiles_dir(target)?.display().to_string();
         let active = match activation::active_name(target)? {
             Some(name) => name,
@@ -30,6 +33,7 @@ impl TargetRow {
         Ok(TargetRow {
             name: target.id.to_string(),
             kind,
+            profiles,
             store_dir,
             active,
         })
@@ -47,6 +51,10 @@ impl TargetRow {
         &self.store_dir
     }
 
+    fn profiles(&self) -> &str {
+        &self.profiles
+    }
+
     fn active(&self) -> &str {
         &self.active
     }
@@ -62,12 +70,16 @@ const TARGET_COLUMNS: &[TableColumn<TargetRow>] = &[
         value: TargetRow::kind,
     },
     TableColumn {
-        header: "store dir",
-        value: TargetRow::store_dir,
+        header: "profile count",
+        value: TargetRow::profiles,
     },
     TableColumn {
         header: "active",
         value: TargetRow::active,
+    },
+    TableColumn {
+        header: "store dir",
+        value: TargetRow::store_dir,
     },
 ];
 
@@ -144,6 +156,7 @@ mod tests {
             &[TargetRow {
                 name: "codex".to_string(),
                 kind: "built-in",
+                profiles: "3 (1 incomplete)".to_string(),
                 store_dir: "/tmp/profiles/codex".to_string(),
                 active: "(none)".to_string(),
             }],
@@ -157,7 +170,7 @@ mod tests {
                 .expect("table should contain a header")
                 .split_whitespace()
                 .collect::<Vec<_>>(),
-            ["name", "type", "store", "dir", "active"]
+            ["name", "type", "profile", "count", "active", "store", "dir"]
         );
         let separator = lines.next().expect("table should contain a separator");
         assert!(separator.contains('-'));
@@ -172,7 +185,15 @@ mod tests {
                 .expect("table should contain a target row")
                 .split_whitespace()
                 .collect::<Vec<_>>(),
-            ["codex", "built-in", "/tmp/profiles/codex", "(none)"]
+            [
+                "codex",
+                "built-in",
+                "3",
+                "(1",
+                "incomplete)",
+                "(none)",
+                "/tmp/profiles/codex",
+            ]
         );
         assert!(
             lines.next().is_none(),

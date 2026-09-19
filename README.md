@@ -43,7 +43,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> dir` | 显示 profile 存储目录 |
 | `cprof <target> list` | 列出所有 profile |
 | `cprof <target> which` | 当前激活状态 |
-| `cprof <target> num` | profile 总数 |
+| `cprof <target> num` | profile 总数及 incomplete 数量 |
 | `cprof <target> switch [name] [-f]` | 切换 profile |
 | `cprof <target> create [name] [-c profile] [--editor program] [--editor-arg arg]...` | 创建并编辑 profile, 可从已有 profile 复制 |
 | `cprof <target> edit [name] [--filename key] [--editor program] [--editor-arg arg]...` | 编辑 profile |

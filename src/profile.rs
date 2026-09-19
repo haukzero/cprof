@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +15,18 @@ use crate::targets::{ResourceSpec, TargetSpec};
 pub struct ProfileInfo {
     pub name: String,
     pub complete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProfileCounts {
+    pub total: usize,
+    pub incomplete: usize,
+}
+
+impl fmt::Display for ProfileCounts {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{} ({} incomplete)", self.total, self.incomplete)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +79,14 @@ pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
             })
         })
         .collect()
+}
+
+pub fn counts(target: &TargetSpec) -> Result<ProfileCounts> {
+    let profiles = list(target)?;
+    Ok(ProfileCounts {
+        total: profiles.len(),
+        incomplete: profiles.iter().filter(|profile| !profile.complete).count(),
+    })
 }
 
 /// List profile names without reading their resources.
@@ -344,7 +365,27 @@ fn write_resource(path: &Path, spec: &ResourceSpec, content: &[u8]) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::matches_pattern;
+    use super::{ProfileCounts, matches_pattern};
+
+    #[test]
+    fn profile_counts_display_total_and_incomplete_counts() {
+        assert_eq!(
+            ProfileCounts {
+                total: 3,
+                incomplete: 1,
+            }
+            .to_string(),
+            "3 (1 incomplete)"
+        );
+        assert_eq!(
+            ProfileCounts {
+                total: 0,
+                incomplete: 0,
+            }
+            .to_string(),
+            "0 (0 incomplete)"
+        );
+    }
 
     #[test]
     fn wildcard_patterns_match_expected_names() {

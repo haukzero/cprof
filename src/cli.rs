@@ -141,7 +141,7 @@ pub enum TargetCommand {
     List,
     /// Show the currently active profile name or status
     Which,
-    /// Show the total number of profiles
+    /// Show total and incomplete profile counts
     Num,
     /// Create a profile
     Create {

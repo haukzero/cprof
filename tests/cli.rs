@@ -34,6 +34,23 @@ fn create_claude_profile(home: &TestHome, name: &str) {
 }
 
 #[test]
+fn profile_counts_include_incomplete_profiles() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "complete");
+    fs::create_dir_all(home.path.join(".cprof/profiles/claude/incomplete")).unwrap();
+
+    assert_eq!(home.succeeds(&["claude", "num"]), "2 (1 incomplete)\n");
+
+    let targets = home.succeeds(&["targets"]);
+    let claude = targets
+        .lines()
+        .find(|line| line.starts_with("claude"))
+        .expect("targets output should contain claude");
+    assert!(claude.contains("2 (1 incomplete)"), "{targets}");
+    assert!(targets.contains("profile count"), "{targets}");
+}
+
+#[test]
 fn non_interactive_remove_conflict_fails_before_deleting_any_profiles() {
     let home = TestHome::new();
     create_claude_profile(&home, "active");
