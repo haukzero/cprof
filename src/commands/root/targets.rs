@@ -3,6 +3,7 @@ use crate::config;
 use crate::error::Result;
 use crate::profile;
 use crate::targets;
+use unicode_width::UnicodeWidthStr;
 
 struct TargetRow {
     name: String,
@@ -99,10 +100,10 @@ fn render_table<T>(rows: &[T], columns: &[TableColumn<T>]) -> String {
         .iter()
         .map(|column| {
             rows.iter()
-                .map(|row| (column.value)(row).len())
+                .map(|row| display_width((column.value)(row)))
                 .max()
                 .unwrap_or(0)
-                .max(column.header.len())
+                .max(display_width(column.header))
         })
         .collect::<Vec<_>>();
     let row_width = widths.iter().sum::<usize>() + columns.len().saturating_sub(1) * 2 + 1;
@@ -130,10 +131,14 @@ fn render_row<T>(
         let value = row.map_or(column.header, |row| (column.value)(row));
         output.push_str(value);
         if index < last_column {
-            output.extend(std::iter::repeat_n(' ', width - value.len()));
+            output.extend(std::iter::repeat_n(' ', width - display_width(value)));
         }
     }
     output.push('\n');
+}
+
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
 }
 
 fn render_separator(output: &mut String, widths: &[usize]) {
@@ -149,6 +154,7 @@ fn render_separator(output: &mut String, widths: &[usize]) {
 #[cfg(test)]
 mod tests {
     use super::{TARGET_COLUMNS, TargetRow, render_table};
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn renders_target_columns() {
@@ -199,5 +205,41 @@ mod tests {
             lines.next().is_none(),
             "table should contain one target row"
         );
+    }
+
+    #[test]
+    fn aligns_columns_when_values_contain_wide_characters() {
+        let output = render_table(
+            &[
+                TargetRow {
+                    name: "中文".to_string(),
+                    kind: "extra",
+                    profiles: "1 (0 incomplete)".to_string(),
+                    active: "配置".to_string(),
+                    store_dir: "/tmp/profiles/chinese".to_string(),
+                },
+                TargetRow {
+                    name: "ascii".to_string(),
+                    kind: "extra",
+                    profiles: "1 (0 incomplete)".to_string(),
+                    active: "active".to_string(),
+                    store_dir: "/tmp/profiles/ascii".to_string(),
+                },
+            ],
+            TARGET_COLUMNS,
+        );
+
+        let store_dir_columns = output
+            .lines()
+            .skip(2)
+            .map(|line| {
+                let byte_index = line
+                    .find("/tmp/profiles/")
+                    .expect("row should contain path");
+                UnicodeWidthStr::width(&line[..byte_index])
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(store_dir_columns.len(), 2);
+        assert_eq!(store_dir_columns[0], store_dir_columns[1]);
     }
 }
