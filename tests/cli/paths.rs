@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Read, Write};
-use std::os::unix::fs::symlink;
 
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use super::support::TestHome;
+use crate::support::{TestHome, can_symlink, symlink};
 
 fn resource(key: &str, filename: &str, active_path: &str) -> toml::Table {
     toml::toml! {
@@ -28,8 +27,7 @@ fn config(resources: &[toml::Table]) -> String {
 
 fn rejects_config(home: &TestHome, config: &str, expected: &str) {
     home.set_config(config);
-    let stderr = home.fails(&["clean", "--force", "--extra-toml"]);
-    assert!(stderr.contains(expected), "{config}\n{stderr}");
+    home.fails(&["clean", "--force", "--extra-toml"], expected);
     assert_eq!(fs::read_to_string(home.config_path()).unwrap(), config);
     assert!(!home.path.join(".cprof/profiles").exists());
 }
@@ -141,8 +139,10 @@ fn packaged_paths_are_validated_before_forced_unpack_writes() {
     ] {
         fs::write(&mutated, tamper_manifest(&original, old, new)).unwrap();
         let destination = TestHome::new();
-        let stderr = destination.fails(&["unpack", "--path", mutated.to_str().unwrap(), "--force"]);
-        assert!(stderr.contains(expected), "{stderr}");
+        destination.fails(
+            &["unpack", "--path", mutated.to_str().unwrap(), "--force"],
+            expected,
+        );
         assert!(!destination.config_path().exists());
         assert!(!destination.path.join(".cprof/profiles").exists());
     }
@@ -163,10 +163,9 @@ fn non_current_manifest_versions_are_rejected() {
         )
         .unwrap();
         let destination = TestHome::new();
-        let stderr = destination.fails(&["unpack", "--path", mutated.to_str().unwrap(), "--force"]);
-        assert!(
-            stderr.contains("Unsupported package manifest version"),
-            "{stderr}"
+        destination.fails(
+            &["unpack", "--path", mutated.to_str().unwrap(), "--force"],
+            "Unsupported package manifest version",
         );
         assert!(!destination.config_path().exists());
         assert!(!destination.path.join(".cprof/profiles").exists());
@@ -198,7 +197,12 @@ fn different_resource_keys_cannot_share_files_or_active_paths() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires symbolic-link privileges; run with --include-ignored"
+)]
 fn parent_symlink_aliases_cannot_hide_duplicate_active_paths() {
+    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     fs::create_dir(home.path.join(".demo")).unwrap();
     symlink(home.path.join(".demo"), home.path.join(".alias")).unwrap();
@@ -228,8 +232,10 @@ fn merging_valid_definitions_cannot_introduce_resource_collisions() {
         let destination = TestHome::new();
         let local = config(&[resource("first", "first.conf", ".demo/first")]);
         destination.set_config(&local);
-        let stderr = destination.fails(&["unpack", "--path", package.to_str().unwrap(), "--force"]);
-        assert!(stderr.contains(expected), "{stderr}");
+        destination.fails(
+            &["unpack", "--path", package.to_str().unwrap(), "--force"],
+            expected,
+        );
         assert_eq!(
             fs::read_to_string(destination.config_path()).unwrap(),
             local
@@ -287,16 +293,19 @@ fn absolute_active_path_survives_activation_and_package_roundtrip() {
     );
     home.set_config(&config(&[settings]));
 
-    home.succeeds(&["demo-id", "create", "profile", "--editor", "/bin/true"]);
-    assert!(active.is_symlink());
-    assert_eq!(
-        fs::canonicalize(&active).unwrap(),
-        fs::canonicalize(
-            home.path
-                .join(".cprof/profiles/demo-id/profile/settings.json")
-        )
-        .unwrap()
+    let profile = home.write_profile(
+        "demo-id",
+        "profile",
+        &[("settings.json", "packaged content")],
     );
+    if can_symlink() {
+        home.succeeds(&["demo-id", "switch", "profile"]);
+        assert!(active.is_symlink());
+        assert_eq!(
+            fs::canonicalize(&active).unwrap(),
+            fs::canonicalize(profile.join("settings.json")).unwrap()
+        );
+    }
     home.succeeds(&["pack"]);
 
     let destination = TestHome::new();
@@ -320,7 +329,12 @@ fn absolute_active_path_survives_activation_and_package_roundtrip() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires symbolic-link privileges; run with --include-ignored"
+)]
 fn forced_switch_rejects_parent_symlink_escape_with_missing_descendants() {
+    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     let outside = tempfile::tempdir().unwrap();
     symlink(outside.path(), home.path.join("redirect")).unwrap();
@@ -330,14 +344,18 @@ fn forced_switch_rejects_parent_symlink_escape_with_missing_descendants() {
         "redirect/missing/settings.json",
     )]));
 
-    let stderr = home.fails(&["demo-id", "switch", "test", "--force"]);
-    assert!(stderr.contains("Unsafe path"), "{stderr}");
+    home.fails(&["demo-id", "switch", "test", "--force"], "Unsafe path");
     assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
     assert!(!home.path.join(".cprof/profiles").exists());
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires symbolic-link privileges; run with --include-ignored"
+)]
 fn repository_and_config_symlinks_cannot_escape_home() {
+    assert!(can_symlink(), "symbolic-link privileges are required");
     for link_path in [".cprof", ".cprof/extra-target.toml"] {
         let home = TestHome::new();
         let outside = tempfile::tempdir().unwrap();
@@ -352,14 +370,18 @@ fn repository_and_config_symlinks_cannot_escape_home() {
         };
         symlink(source, &link).unwrap();
 
-        let stderr = home.fails(&["targets"]);
-        assert!(stderr.contains("Unsafe path"), "{stderr}");
+        home.fails(&["targets"], "Unsafe path");
         assert_eq!(fs::read_to_string(&external_config).unwrap(), "[demo]\n");
     }
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "requires symbolic-link privileges; run with --include-ignored"
+)]
 fn stored_resources_cannot_be_symlink_aliases() {
+    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     let outside = tempfile::tempdir().unwrap();
     let source = outside.path().join("settings.json");
@@ -373,7 +395,6 @@ fn stored_resources_cannot_be_symlink_aliases() {
     fs::create_dir_all(&profile).unwrap();
     symlink(&source, profile.join("settings.json")).unwrap();
 
-    let stderr = home.fails(&["demo-id", "where", "test"]);
-    assert!(stderr.contains("Unsafe path"), "{stderr}");
+    home.fails(&["demo-id", "where", "test"], "Unsafe path");
     assert_eq!(fs::read_to_string(&source).unwrap(), "outside");
 }

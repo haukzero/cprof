@@ -4,6 +4,18 @@ use cprof::config;
 use cprof::error::{AppError, PathError, Result, TargetError};
 use cprof::targets::{ResourceSpec, TargetSpec};
 
+#[test]
+fn profile_names_reject_traversal_and_wildcards() {
+    for name in ["../escape", "", "literal*star", "literal?mark"] {
+        assert!(matches!(
+            cprof::profile::validate_name(name),
+            Err(AppError::Profile(cprof::error::ProfileError::InvalidName(
+                _
+            )))
+        ));
+    }
+}
+
 fn target() -> TargetSpec {
     TargetSpec {
         id: "demo".to_string(),

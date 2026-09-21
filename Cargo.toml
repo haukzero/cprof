@@ -27,7 +27,6 @@ unicode-width = "0.2.2"
 zip = { version = "8.6.0", features = ["deflate"], default-features = false }
 
 [dev-dependencies]
-serial_test = "4.0.1"
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]

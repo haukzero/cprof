@@ -244,7 +244,9 @@ mod tests {
         let external = directory.path().join("external-auth");
         fs::write(&external, "auth").unwrap();
         fs::remove_file(&sources[1].path).unwrap();
-        filesystem::create_symlink(Path::new("../external-auth"), &sources[1].path).unwrap();
+        // Relative symlink targets need native separators on Windows.
+        filesystem::create_symlink(&Path::new("..").join("external-auth"), &sources[1].path)
+            .unwrap();
         let mut permissions = fs::metadata(&sources[0].path).unwrap().permissions();
         permissions.set_readonly(true);
         fs::set_permissions(&sources[0].path, permissions.clone()).unwrap();
@@ -288,7 +290,8 @@ mod tests {
         let mut sources = sources(directory.path());
         fs::write(directory.path().join("external-config"), "config").unwrap();
         fs::remove_file(&sources[0].path).unwrap();
-        filesystem::create_symlink(Path::new("../external-config"), &sources[0].path).unwrap();
+        let relative = Path::new("..").join("external-config");
+        filesystem::create_symlink(&relative, &sources[0].path).unwrap();
         sources[0] =
             ActiveResource::read(&spec(&sources[0].filename, true), sources[0].path.clone())
                 .unwrap();
@@ -299,10 +302,7 @@ mod tests {
         fs::remove_file(&sources[1].path).unwrap();
         assert!(transaction.commit().is_err());
         assert!(!destination.exists());
-        assert_eq!(
-            fs::read_link(&sources[0].path).unwrap(),
-            Path::new("../external-config")
-        );
+        assert_eq!(fs::read_link(&sources[0].path).unwrap(), relative);
         assert_eq!(fs::read_to_string(&sources[0].path).unwrap(), "config");
         assert!(!sources[1].path.exists());
         assert_no_staging(directory.path());
@@ -379,13 +379,13 @@ mod tests {
         let transaction = stage_adoption(&destination, &sources).unwrap();
         fs::write(directory.path().join("replacement"), "auth").unwrap();
         fs::remove_file(&sources[1].path).unwrap();
-        filesystem::create_symlink(Path::new("../replacement"), &sources[1].path).unwrap();
-        assert!(commit_adoption(transaction, &sources).is_err());
+        let relative = Path::new("..").join("replacement");
+        filesystem::create_symlink(&relative, &sources[1].path).unwrap();
+        assert!(matches!(commit_adoption(transaction, &sources),
+            Err(AppError::Activation(ActivationError::ConfigurationChanged(path))) if path == sources[1].path));
         assert!(!destination.exists());
-        assert_eq!(
-            fs::read_link(&sources[1].path).unwrap(),
-            Path::new("../replacement")
-        );
+        assert_eq!(fs::read_link(&sources[1].path).unwrap(), relative);
+        assert_eq!(fs::read_to_string(&sources[1].path).unwrap(), "auth");
         assert_no_staging(directory.path());
     }
 }
