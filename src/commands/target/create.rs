@@ -1,4 +1,5 @@
 use crate::cli::EditorOptions;
+use crate::elevate;
 use crate::error::{AppError, Result};
 use crate::profile::activation::{self, Status};
 use crate::profile::storage;
@@ -38,7 +39,14 @@ pub fn run(
     }
 
     if matches!(activation::status(target)?, Status::NoFiles) {
-        activation::switch(target, &name, false)?;
+        elevate::run(
+            &[
+                target.id.clone().into(),
+                "switch".into(),
+                name.clone().into(),
+            ],
+            || activation::switch(target, &name, false),
+        )?;
         style::success(format!("Created and activated profile '{}'", name));
     } else {
         style::success(format!("Created profile '{}'", name));

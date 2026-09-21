@@ -13,21 +13,19 @@ pub fn run(target: &TargetSpec, name: Option<String>, force: bool) -> Result<()>
     }
     let name = prompt::select_profile(target, name, "Profile name to switch to (type to search)")?;
     storage::require_exists(target, &name)?;
-    let already_active = activation::switch(target, &name, force).or_else(|error| {
-        let mut args = vec![
-            target.id.clone().into(),
-            "switch".into(),
-            name.clone().into(),
-        ];
-        if force {
-            args.push("--force".into());
-        }
-        elevate::retry_as_admin(error, &args).map(|()| false)
-    })?;
+    let mut args = vec![
+        target.id.clone().into(),
+        "switch".into(),
+        name.clone().into(),
+    ];
+    if force {
+        args.push("--force".into());
+    }
+    let already_active = elevate::run(&args, || activation::switch(target, &name, force))?;
     if elevate::is_elevated_child() {
         return Ok(());
     }
-    if already_active {
+    if already_active == Some(true) {
         style::warning(format!("'{}' is already the active profile", name));
     } else {
         println!("Switched to profile '{}'", name);

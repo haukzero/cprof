@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 
-use crate::error::{AppError, Result};
+use crate::error::Result;
 
 #[cfg(any(windows, test))]
 mod arguments;
@@ -17,13 +17,20 @@ use self::windows as platform;
 // Expose one cross-platform API; callers do not select platform modules.
 pub use platform::{is_elevated_child, is_privilege_error, prepare_args};
 
-/// Retry only privilege failures after successful rollback. Elevated children
-/// must never request another elevation; other errors retain their original type.
-pub(crate) fn retry_as_admin(error: AppError, args: &[OsString]) -> Result<()> {
-    if !is_privilege_error(&error) || is_elevated_child() {
-        return Err(error);
+/// Run an operation locally, then retry its command after a recoverable privilege
+/// failure. The operation must finish rollback before returning an error.
+/// `None` means the elevated child succeeded; its return value is not available.
+pub(crate) fn run<T>(
+    args: &[OsString],
+    operation: impl FnOnce() -> Result<T>,
+) -> Result<Option<T>> {
+    match operation() {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if is_privilege_error(&error) && !is_elevated_child() => {
+            platform::run_as_admin(args).map(|()| None)
+        }
+        Err(error) => Err(error),
     }
-    platform::run_as_admin(args)
 }
 
 #[cfg(test)]
@@ -32,12 +39,12 @@ mod tests {
     use std::io;
 
     use super::*;
-    use crate::error::{ProfileError, TransactionError};
+    use crate::error::{AppError, ProfileError, TransactionError};
 
     #[test]
     fn ordinary_errors_are_returned_without_elevation() {
         assert!(matches!(
-            retry_as_admin(ProfileError::Exists("existing".into()).into(), &[]),
+            run::<()>(&[], || Err(ProfileError::Exists("existing".into()).into())),
             Err(AppError::Profile(ProfileError::Exists(name))) if name == "existing"
         ));
     }
@@ -52,7 +59,7 @@ mod tests {
         assert!(!is_privilege_error(&error));
         assert!(error.source().is_some());
         assert!(matches!(
-            retry_as_admin(error, &[]),
+            run::<()>(&[], || Err(error)),
             Err(AppError::Transaction(
                 TransactionError::RecoveryFailed { .. }
             ))
@@ -61,7 +68,7 @@ mod tests {
         let error = TransactionError::CleanupFailed(vec![privilege()]).into();
         assert!(!is_privilege_error(&error));
         assert!(matches!(
-            retry_as_admin(error, &[]),
+            run::<()>(&[], || Err(error)),
             Err(AppError::Transaction(TransactionError::CleanupFailed(_)))
         ));
     }

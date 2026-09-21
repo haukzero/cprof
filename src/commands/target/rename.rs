@@ -1,6 +1,7 @@
 use std::fs;
 
 use crate::config;
+use crate::elevate;
 use crate::error::{AppError, IoContext, ProfileError, Result, TransactionError};
 use crate::profile::{self, activation, storage};
 use crate::targets::TargetSpec;
@@ -25,19 +26,32 @@ pub fn run(target: &TargetSpec, old_name: Option<String>, new_name: Option<Strin
     let old_dir = config::profile_dir(target, &old_name)?;
     let was_active = activation::active_name(target)?.as_deref() == Some(old_name.as_str());
 
-    fs::rename(&old_dir, &new_dir).with_path(&old_dir)?;
-    if was_active && let Err(error) = activation::switch(target, &new_name, false) {
-        // The links already refer to new_dir when only backup cleanup failed.
-        if matches!(
-            error,
-            AppError::Transaction(TransactionError::CleanupFailed(_))
-        ) {
-            return Err(error);
-        }
-        let rollback = fs::rename(&new_dir, &old_dir).with_path(&new_dir);
-        return Err(error.with_recovery(rollback.err()));
-    }
+    elevate::run(
+        &[
+            target.id.clone().into(),
+            "rename".into(),
+            old_name.clone().into(),
+            new_name.clone().into(),
+        ],
+        || {
+            fs::rename(&old_dir, &new_dir).with_path(&old_dir)?;
+            if was_active && let Err(error) = activation::switch(target, &new_name, false) {
+                // The links already refer to new_dir when only backup cleanup failed.
+                if matches!(
+                    error,
+                    AppError::Transaction(TransactionError::CleanupFailed(_))
+                ) {
+                    return Err(error);
+                }
+                let rollback = fs::rename(&new_dir, &old_dir).with_path(&new_dir);
+                return Err(error.with_recovery(rollback.err()));
+            }
+            Ok(())
+        },
+    )?;
 
-    style::success(format!("Renamed profile '{old_name}' to '{new_name}'"));
+    if !elevate::is_elevated_child() {
+        style::success(format!("Renamed profile '{old_name}' to '{new_name}'"));
+    }
     Ok(())
 }
