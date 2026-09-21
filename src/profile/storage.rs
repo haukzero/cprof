@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexSet;
 
 use crate::config::{self, paths};
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{AppError, IoContext, ProfileError, Result, TargetError, TransactionError};
 use crate::filesystem::{self, transaction::PathTransaction};
 use crate::targets::{ResourceSpec, TargetSpec};
 
@@ -20,7 +20,7 @@ pub fn exists(target: &TargetSpec, name: &str) -> Result<bool> {
 
 pub(crate) fn require_exists(target: &TargetSpec, name: &str) -> Result<()> {
     if !exists(target, name)? {
-        return Err(AppError::ProfileNotFound(name.to_string()));
+        return Err(ProfileError::NotFound(name.to_string()).into());
     }
     Ok(())
 }
@@ -108,7 +108,7 @@ pub fn resolve_names(target: &TargetSpec, patterns: &[String]) -> Result<Vec<Str
                 }
             }
             if !matched {
-                return Err(AppError::NoProfilesMatched(pattern.clone()));
+                return Err(ProfileError::NoMatches(pattern.clone()).into());
             }
         } else {
             resolved.insert(pattern.clone());
@@ -161,13 +161,13 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
     validate_name(name)?;
     let dir = config::profile_dir(target, name)?;
     if dir.exists() {
-        return Err(AppError::ProfileExists(name.to_string()));
+        return Err(ProfileError::Exists(name.to_string()).into());
     }
 
     let source_dir = match copy_from {
         Some(source) => {
             if !exists(target, source)? {
-                return Err(AppError::ProfileNotFound(source.to_string()));
+                return Err(ProfileError::NotFound(source.to_string()).into());
             }
             Some(config::profile_dir(target, source)?)
         }
@@ -195,8 +195,8 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
         return Err(transaction.cancel(error));
     }
     transaction.commit().map_err(|error| match error {
-        AppError::TransactionConflict(_) if dir.exists() => {
-            AppError::ProfileExists(name.to_string())
+        AppError::Transaction(TransactionError::Conflict(_)) if dir.exists() => {
+            ProfileError::Exists(name.to_string()).into()
         }
         error => error,
     })
@@ -206,7 +206,7 @@ pub fn delete(target: &TargetSpec, name: &str) -> Result<()> {
     validate_name(name)?;
     let dir = config::profile_dir(target, name)?;
     if !dir.is_dir() {
-        return Err(AppError::ProfileNotFound(name.to_string()));
+        return Err(ProfileError::NotFound(name.to_string()).into());
     }
     fs::remove_dir_all(&dir).with_path(&dir)?;
     Ok(())
@@ -245,7 +245,7 @@ pub(crate) fn validate_replacement(
     validate_name(name)?;
     let destination = config::profile_dir(target, name)?;
     if destination.exists() && !overwrite {
-        return Err(AppError::ProfileExists(name.to_string()));
+        return Err(ProfileError::Exists(name.to_string()).into());
     }
     validate_resources(target, name, resources)
 }
@@ -265,7 +265,7 @@ pub(crate) fn stage_validated_replace(
 pub fn read(target: &TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
     validate_name(name)?;
     if !exists(target, name)? {
-        return Err(AppError::ProfileNotFound(name.to_string()));
+        return Err(ProfileError::NotFound(name.to_string()).into());
     }
 
     let mut resources = Vec::new();
@@ -273,7 +273,7 @@ pub fn read(target: &TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
         let path = config::profile_resource(target, name, spec)?;
         if !path.exists() {
             if spec.required {
-                return Err(AppError::IncompleteProfile(name.to_string()));
+                return Err(ProfileError::Incomplete(name.to_string()).into());
             }
             continue;
         }
@@ -319,10 +319,11 @@ fn validate_resources(
     for resource in resources {
         let expected = target.resource(&resource.spec.key)?;
         if expected.filename != resource.spec.filename || !keys.insert(resource.spec.key.clone()) {
-            return Err(AppError::InvalidResource(format!(
+            return Err(TargetError::InvalidResource(format!(
                 "Invalid resource '{}' in profile '{name}'",
                 resource.spec.key
-            )));
+            ))
+            .into());
         }
         (expected.validate)(&resource.content)?;
     }
@@ -331,7 +332,7 @@ fn validate_resources(
         .iter()
         .any(|spec| spec.required && !keys.contains(&spec.key))
     {
-        return Err(AppError::IncompleteProfile(name.to_string()));
+        return Err(ProfileError::Incomplete(name.to_string()).into());
     }
     Ok(())
 }

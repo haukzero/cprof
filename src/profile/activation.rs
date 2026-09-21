@@ -5,7 +5,7 @@ use std::io;
 use std::path::Path;
 
 use crate::config::{self, paths};
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{ActivationError, AppError, IoContext, ProfileError, Result};
 use crate::filesystem::{self, transaction::PathTransaction};
 use crate::targets::{ResourceSpec, TargetSpec};
 
@@ -109,7 +109,7 @@ pub(crate) fn active_name_from_profiles(
 pub fn switch(target: &TargetSpec, name: &str, force: bool) -> Result<bool> {
     validate_name(name)?;
     if !storage::is_complete(target, name)? {
-        return Err(AppError::IncompleteProfile(name.to_string()));
+        return Err(ProfileError::Incomplete(name.to_string()).into());
     }
     if active_name(target)?.as_deref() == Some(name) {
         return Ok(true);
@@ -121,7 +121,7 @@ pub fn switch(target: &TargetSpec, name: &str, force: bool) -> Result<bool> {
             let source = config::profile_resource(target, name, resource)?;
             let exists = filesystem::path_exists(&link)?;
             if exists && !force && managed_link_profile(target, resource, &link)?.is_none() {
-                return Err(AppError::UnmanagedActivePath(link.display().to_string()));
+                return Err(ActivationError::UnmanagedPath(link.display().to_string()).into());
             }
             if source.exists() {
                 transaction.stage_symlink(&link, &source, exists)?;

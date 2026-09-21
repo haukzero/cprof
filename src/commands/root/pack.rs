@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::commands::target;
-use crate::error::{AppError, Result};
+use crate::error::{PackageError, Result, TargetError};
 use crate::package;
 use crate::targets::{TargetRepository, TargetSpec};
 use crate::ui::prompt;
@@ -17,7 +17,7 @@ pub fn run(
     let output = Path::new(&output_path);
     let selected_targets = selected_targets(targets, select)?;
     if selected_targets.is_empty() {
-        return Err(AppError::NoTargetsSelected);
+        return Err(TargetError::NoneSelected.into());
     }
     let packages = selected_targets
         .iter()
@@ -27,7 +27,7 @@ pub fn run(
         .flatten()
         .collect::<Vec<_>>();
     if packages.is_empty() {
-        return Err(AppError::InvalidPackage("No profiles to pack".to_string()));
+        return Err(PackageError::Invalid("No profiles to pack".to_string()).into());
     }
     target::pack::write_package(targets, output, &packages)
 }

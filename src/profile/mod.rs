@@ -13,7 +13,7 @@ use std::fmt;
 use serde::Serialize;
 
 use crate::config::paths;
-use crate::error::{AppError, Result};
+use crate::error::{ProfileError, Result};
 use crate::targets::ResourceSpec;
 
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ pub struct ProfileResource {
 
 pub fn validate_name(name: &str) -> Result<()> {
     if name.contains(['*', '?']) || paths::validate_safe_component(name).is_err() {
-        return Err(AppError::InvalidProfileName(name.to_string()));
+        return Err(ProfileError::InvalidName(name.to_string()).into());
     }
     Ok(())
 }

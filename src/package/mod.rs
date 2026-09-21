@@ -5,7 +5,7 @@ mod profiles;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::error::{AppError, Result};
+use crate::error::{PackageError, Result};
 use crate::profile::ProfileResource;
 use crate::targets::external::{self, ExternalTargetConfig};
 use crate::targets::{self, TargetRepository};
@@ -54,7 +54,7 @@ pub(crate) fn encode_with_repository(
     packages: &[TargetPackage],
 ) -> Result<Vec<u8>> {
     if packages.is_empty() {
-        return Err(AppError::InvalidPackage("No profiles to pack".to_string()));
+        return Err(PackageError::Invalid("No profiles to pack".to_string()).into());
     }
 
     let mut target_names = HashSet::new();
@@ -63,10 +63,9 @@ pub(crate) fn encode_with_repository(
     for (target_index, package) in packages.iter().enumerate() {
         let target = targets.get(&package.target)?;
         if !target_names.insert(package.target.as_str()) {
-            return Err(AppError::InvalidPackage(format!(
-                "Duplicate target '{}'",
-                package.target
-            )));
+            return Err(
+                PackageError::Invalid(format!("Duplicate target '{}'", package.target)).into(),
+            );
         }
 
         let encoded = profiles::encode(&target, &package.profiles, target_index)?;
@@ -74,7 +73,7 @@ pub(crate) fn encode_with_repository(
             None
         } else {
             let config = targets.external_config_for(&target).ok_or_else(|| {
-                AppError::InvalidPackage(format!(
+                PackageError::Invalid(format!(
                     "Missing configuration for external target '{}'",
                     target.id
                 ))
@@ -107,9 +106,7 @@ pub(crate) fn decode_with_repository(
     let mut archive = archive::open(data)?;
     let manifest = manifest::decode(&archive::read_manifest(&mut archive)?)?;
     if manifest.targets.is_empty() {
-        return Err(AppError::InvalidPackage(
-            "Package contains no targets".to_string(),
-        ));
+        return Err(PackageError::Invalid("Package contains no targets".to_string()).into());
     }
 
     let mut target_names = HashSet::new();
@@ -118,20 +115,22 @@ pub(crate) fn decode_with_repository(
         let target = if let Some(config) = &manifest_target.target_config {
             let target = external::spec_from_external_config(config)?;
             if target.id != manifest_target.target {
-                return Err(AppError::InvalidPackage(format!(
+                return Err(PackageError::Invalid(format!(
                     "Target configuration id '{}' does not match target '{}'",
                     target.id, manifest_target.target
-                )));
+                ))
+                .into());
             }
             Arc::new(target)
         } else {
             targets.get(&manifest_target.target)?
         };
         if !target_names.insert(manifest_target.target.clone()) {
-            return Err(AppError::InvalidPackage(format!(
+            return Err(PackageError::Invalid(format!(
                 "Duplicate target '{}'",
                 manifest_target.target
-            )));
+            ))
+            .into());
         }
         let profiles = profiles::decode(&target, target_index, manifest_target, &mut archive)?;
         packages.push(TargetPackage {

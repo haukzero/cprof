@@ -1,4 +1,4 @@
-use crate::error::{AppError, Result};
+use crate::error::{PackageError, Result};
 use crate::targets::external::{self, ExternalResourceConfig, ExternalTargetConfig};
 
 const MAGIC: &[u8; 4] = b"CPMF";
@@ -53,15 +53,13 @@ pub(super) fn encode(manifest: &Manifest) -> Result<Vec<u8>> {
 pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
     let mut reader = Reader::new(data);
     if reader.take(MAGIC.len())? != MAGIC {
-        return Err(AppError::InvalidPackage(
-            "Invalid package manifest magic".to_string(),
-        ));
+        return Err(PackageError::Invalid("Invalid package manifest magic".to_string()).into());
     }
     let version = reader.read_byte()?;
     if version != VERSION {
-        return Err(AppError::InvalidPackage(
-            "Unsupported package manifest version".to_string(),
-        ));
+        return Err(
+            PackageError::Invalid("Unsupported package manifest version".to_string()).into(),
+        );
     }
 
     let target_count = reader.read_count()?;
@@ -72,9 +70,10 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
             0 => None,
             1 => Some(read_external_config(&mut reader)?),
             _ => {
-                return Err(AppError::InvalidPackage(
+                return Err(PackageError::Invalid(
                     "Manifest contains invalid target configuration flag".to_string(),
-                ));
+                )
+                .into());
             }
         };
         let profile_count = reader.read_count()?;
@@ -99,9 +98,8 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
 }
 
 fn write_external_config(bytes: &mut Vec<u8>, config: &ExternalTargetConfig) -> Result<()> {
-    external::validate_external_config(config).map_err(|error| {
-        AppError::InvalidPackage(format!("Invalid target configuration: {error}"))
-    })?;
+    external::validate_external_config(config)
+        .map_err(|error| PackageError::Invalid(format!("Invalid target configuration: {error}")))?;
     write_string(bytes, &config.name)?;
     write_optional_string(bytes, config.id.as_deref())?;
     write_count(bytes, config.resources.len());
@@ -136,9 +134,8 @@ fn read_external_config(reader: &mut Reader<'_>) -> Result<ExternalTargetConfig>
         id,
         resources,
     };
-    external::validate_external_config(&config).map_err(|error| {
-        AppError::InvalidPackage(format!("Invalid target configuration: {error}"))
-    })?;
+    external::validate_external_config(&config)
+        .map_err(|error| PackageError::Invalid(format!("Invalid target configuration: {error}")))?;
     Ok(config)
 }
 
@@ -175,9 +172,7 @@ fn write_varint(bytes: &mut Vec<u8>, mut value: u64) {
 
 fn write_string(bytes: &mut Vec<u8>, value: &str) -> Result<()> {
     if value.len() > MAX_STRING_LEN {
-        return Err(AppError::InvalidPackage(
-            "Manifest string is too long".to_string(),
-        ));
+        return Err(PackageError::Invalid("Manifest string is too long".to_string()).into());
     }
     write_count(bytes, value.len());
     bytes.extend_from_slice(value.as_bytes());
@@ -198,11 +193,9 @@ impl<'a> Reader<'a> {
         let end = self
             .offset
             .checked_add(length)
-            .ok_or_else(|| AppError::InvalidPackage("Manifest is truncated".to_string()))?;
+            .ok_or_else(|| PackageError::Invalid("Manifest is truncated".to_string()))?;
         if end > self.data.len() {
-            return Err(AppError::InvalidPackage(
-                "Manifest is truncated".to_string(),
-            ));
+            return Err(PackageError::Invalid("Manifest is truncated".to_string()).into());
         }
         let bytes = &self.data[self.offset..end];
         self.offset = end;
@@ -219,53 +212,51 @@ impl<'a> Reader<'a> {
             let byte = self.read_byte()?;
             let shift = index * 7;
             if shift == 63 && byte > 1 {
-                return Err(AppError::InvalidPackage(
-                    "Manifest integer is too large".to_string(),
-                ));
+                return Err(
+                    PackageError::Invalid("Manifest integer is too large".to_string()).into(),
+                );
             }
             value |= ((byte & 0x7f) as u64) << shift;
             if byte & 0x80 == 0 {
                 return Ok(value);
             }
         }
-        Err(AppError::InvalidPackage(
-            "Manifest integer is too large".to_string(),
-        ))
+        Err(PackageError::Invalid("Manifest integer is too large".to_string()).into())
     }
 
     fn read_count(&mut self) -> Result<usize> {
         let count = self.read_varint()?;
         if count > MAX_ITEMS {
-            return Err(AppError::InvalidPackage(
-                "Manifest contains too many items".to_string(),
-            ));
+            return Err(
+                PackageError::Invalid("Manifest contains too many items".to_string()).into(),
+            );
         }
         count
             .try_into()
-            .map_err(|_| AppError::InvalidPackage("Manifest is too large".to_string()))
+            .map_err(|_| PackageError::Invalid("Manifest is too large".to_string()).into())
     }
 
     fn read_string(&mut self) -> Result<String> {
         let length = self
             .read_varint()?
             .try_into()
-            .map_err(|_| AppError::InvalidPackage("Manifest string is too long".to_string()))?;
+            .map_err(|_| PackageError::Invalid("Manifest string is too long".to_string()))?;
         if length > MAX_STRING_LEN {
-            return Err(AppError::InvalidPackage(
-                "Manifest string is too long".to_string(),
-            ));
+            return Err(PackageError::Invalid("Manifest string is too long".to_string()).into());
         }
-        String::from_utf8(self.take(length)?.to_vec())
-            .map_err(|_| AppError::InvalidPackage("Manifest contains invalid UTF-8".to_string()))
+        String::from_utf8(self.take(length)?.to_vec()).map_err(|_| {
+            PackageError::Invalid("Manifest contains invalid UTF-8".to_string()).into()
+        })
     }
 
     fn read_optional_string(&mut self) -> Result<Option<String>> {
         match self.read_byte()? {
             0 => Ok(None),
             1 => Ok(Some(self.read_string()?)),
-            _ => Err(AppError::InvalidPackage(
+            _ => Err(PackageError::Invalid(
                 "Manifest contains invalid optional string flag".to_string(),
-            )),
+            )
+            .into()),
         }
     }
 
@@ -274,17 +265,18 @@ impl<'a> Reader<'a> {
             0 => Ok(None),
             1 => Ok(Some(false)),
             2 => Ok(Some(true)),
-            _ => Err(AppError::InvalidPackage(
+            _ => Err(PackageError::Invalid(
                 "Manifest contains invalid optional boolean flag".to_string(),
-            )),
+            )
+            .into()),
         }
     }
 
     fn finish(&self) -> Result<()> {
         if self.offset != self.data.len() {
-            return Err(AppError::InvalidPackage(
-                "Manifest contains trailing data".to_string(),
-            ));
+            return Err(
+                PackageError::Invalid("Manifest contains trailing data".to_string()).into(),
+            );
         }
         Ok(())
     }

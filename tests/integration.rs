@@ -13,7 +13,7 @@ use clap::Parser;
 use cprof::cli::{TargetCli, TargetCommand};
 use cprof::config;
 use cprof::elevate;
-use cprof::error::AppError;
+use cprof::error::{AppError, ProfileError};
 use cprof::package;
 use cprof::profile::{activation, storage};
 use cprof::targets;
@@ -256,7 +256,7 @@ fn profile_patterns_resolve_names_without_duplicates() {
     );
     assert!(matches!(
         storage::resolve_names(target, &["missing_*".to_string()]),
-        Err(AppError::NoProfilesMatched(pattern)) if pattern == "missing_*"
+        Err(AppError::Profile(ProfileError::NoMatches(pattern))) if pattern == "missing_*"
     ));
 
     cleanup(target, &first);
@@ -311,7 +311,7 @@ fn copy_from_requires_an_existing_profile() {
     let missing = unique_name("copy_missing_source");
     let error = storage::create(target, &destination, Some(&missing)).unwrap_err();
 
-    assert!(matches!(error, AppError::ProfileNotFound(name) if name == missing));
+    assert!(matches!(error, AppError::Profile(ProfileError::NotFound(name)) if name == missing));
     assert!(!storage::exists(target, &destination).unwrap());
 }
 
@@ -342,7 +342,7 @@ fn concurrent_profile_creation_has_a_single_winner() {
         assert_eq!(
             results
                 .iter()
-                .filter(|result| matches!(result, Err(AppError::ProfileExists(_))))
+                .filter(|result| matches!(result, Err(AppError::Profile(ProfileError::Exists(_)))))
                 .count(),
             1
         );

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use crate::config::paths;
-use crate::error::{AppError, Result};
+use crate::error::{Result, TargetError};
 
 use external::ExternalTargetConfig;
 
@@ -45,9 +45,12 @@ impl TargetSpec {
         self.resources
             .iter()
             .find(|resource| resource.key == key)
-            .ok_or_else(|| AppError::UnknownResource {
-                target: self.id.to_string(),
-                resource: key.to_string(),
+            .ok_or_else(|| {
+                TargetError::UnknownResource {
+                    target: self.id.to_string(),
+                    resource: key.to_string(),
+                }
+                .into()
             })
     }
 
@@ -99,7 +102,7 @@ impl TargetRepository {
             .iter()
             .find(|target| target.id == id)
             .cloned()
-            .ok_or_else(|| AppError::UnknownTarget(id.to_string()))
+            .ok_or_else(|| TargetError::Unknown(id.to_string()).into())
     }
 
     pub fn all(&self) -> &[Arc<TargetSpec>] {

@@ -3,7 +3,7 @@ use std::io::{Read, Seek};
 
 use zip::ZipArchive;
 
-use crate::error::{AppError, Result};
+use crate::error::{PackageError, ProfileError, Result};
 use crate::profile::{self, ProfileResource};
 use crate::targets::TargetSpec;
 
@@ -20,10 +20,9 @@ pub(super) fn encode(
     target_index: usize,
 ) -> Result<Encoded> {
     if profiles.is_empty() {
-        return Err(AppError::InvalidPackage(format!(
-            "Target '{}' contains no profiles",
-            target.id
-        )));
+        return Err(
+            PackageError::Invalid(format!("Target '{}' contains no profiles", target.id)).into(),
+        );
     }
 
     let mut names = HashSet::new();
@@ -32,10 +31,9 @@ pub(super) fn encode(
     for (profile_index, profile) in profiles.iter().enumerate() {
         profile::validate_name(&profile.name)?;
         if !names.insert(profile.name.as_str()) {
-            return Err(AppError::InvalidPackage(format!(
-                "Duplicate profile '{}'",
-                profile.name
-            )));
+            return Err(
+                PackageError::Invalid(format!("Duplicate profile '{}'", profile.name)).into(),
+            );
         }
         let mut keys = HashSet::new();
         let mut resources = Vec::with_capacity(profile.resources.len());
@@ -45,17 +43,19 @@ pub(super) fn encode(
                 .iter()
                 .position(|spec| spec.key == resource.spec.key)
             else {
-                return Err(AppError::InvalidPackage(format!(
+                return Err(PackageError::Invalid(format!(
                     "Invalid resource '{}' for target '{}'",
                     resource.spec.key, target.id
-                )));
+                ))
+                .into());
             };
             let expected = &target.resources[resource_index];
             if expected.filename != resource.spec.filename || !keys.insert(expected.key.clone()) {
-                return Err(AppError::InvalidPackage(format!(
+                return Err(PackageError::Invalid(format!(
                     "Invalid resource '{}' in profile '{}'",
                     resource.spec.key, profile.name
-                )));
+                ))
+                .into());
             }
             (expected.validate)(&resource.content)?;
             resources.push(resource_index);
@@ -69,7 +69,7 @@ pub(super) fn encode(
             .iter()
             .any(|spec| spec.required && !keys.contains(&spec.key))
         {
-            return Err(AppError::IncompleteProfile(profile.name.clone()));
+            return Err(ProfileError::Incomplete(profile.name.clone()).into());
         }
         manifest_profiles.push(manifest::ManifestProfile {
             name: profile.name.clone(),
@@ -93,31 +93,33 @@ pub(super) fn decode<R: Read + Seek>(
     for (profile_index, manifest_profile) in manifest_target.profiles.iter().enumerate() {
         profile::validate_name(&manifest_profile.name)?;
         if !names.insert(manifest_profile.name.clone()) {
-            return Err(AppError::InvalidPackage(format!(
+            return Err(PackageError::Invalid(format!(
                 "Duplicate profile '{}'",
                 manifest_profile.name
-            )));
+            ))
+            .into());
         }
 
         let mut resource_ids = HashSet::new();
         let mut resources = Vec::with_capacity(manifest_profile.resources.len());
         for &resource_index in &manifest_profile.resources {
             let spec = target.resources.get(resource_index).ok_or_else(|| {
-                AppError::InvalidPackage(format!(
+                PackageError::Invalid(format!(
                     "Unknown resource index {resource_index} for target '{}'",
                     target.id
                 ))
             })?;
             if !resource_ids.insert(resource_index) {
-                return Err(AppError::InvalidPackage(format!(
+                return Err(PackageError::Invalid(format!(
                     "Duplicate resource '{}' in profile '{}'",
                     spec.key, manifest_profile.name
-                )));
+                ))
+                .into());
             }
 
             let path = payload_path(target_index, profile_index, resource_index);
             let mut file = archive.by_name(&path).map_err(|error| {
-                AppError::InvalidPackage(format!("Invalid package archive: {error}"))
+                PackageError::Invalid(format!("Invalid package archive: {error}"))
             })?;
             let mut content = Vec::new();
             file.read_to_end(&mut content)?;
@@ -133,7 +135,7 @@ pub(super) fn decode<R: Read + Seek>(
             .enumerate()
             .any(|(index, spec)| spec.required && !resource_ids.contains(&index))
         {
-            return Err(AppError::IncompleteProfile(manifest_profile.name.clone()));
+            return Err(ProfileError::Incomplete(manifest_profile.name.clone()).into());
         }
         profiles.push(PackageProfile::new(
             manifest_profile.name.clone(),
@@ -141,10 +143,9 @@ pub(super) fn decode<R: Read + Seek>(
         ));
     }
     if profiles.is_empty() {
-        return Err(AppError::InvalidPackage(format!(
-            "Target '{}' contains no profiles",
-            target.id
-        )));
+        return Err(
+            PackageError::Invalid(format!("Target '{}' contains no profiles", target.id)).into(),
+        );
     }
     Ok(profiles)
 }

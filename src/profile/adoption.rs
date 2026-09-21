@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::config::{self, paths};
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{ActivationError, AppError, IoContext, ProfileError, Result, TargetError};
 use crate::filesystem::{self, transaction::PathTransaction};
 use crate::targets::{ResourceSpec, TargetSpec};
 
@@ -17,21 +17,22 @@ use super::activation::{self, Status};
 pub fn adopt(target: &TargetSpec, name: &str) -> Result<()> {
     let destination = config::profile_dir(target, name)?;
     if destination.exists() {
-        return Err(AppError::ProfileExists(name.to_string()));
+        return Err(ProfileError::Exists(name.to_string()).into());
     }
     match activation::status(target)? {
         Status::Unmanaged => {}
         Status::Active(active) => {
-            return Err(AppError::AlreadyManaged {
+            return Err(ActivationError::AlreadyManaged {
                 target: target.id.clone(),
                 profile: active,
-            });
+            }
+            .into());
         }
         Status::NoFiles => {
-            return Err(AppError::NoActiveConfiguration(target.id.clone()));
+            return Err(ActivationError::NoConfiguration(target.id.clone()).into());
         }
         Status::Partial | Status::Mixed => {
-            return Err(AppError::InconsistentManagedLinks(target.id.clone()));
+            return Err(ActivationError::InconsistentLinks(target.id.clone()).into());
         }
     }
 
@@ -56,16 +57,17 @@ impl ActiveResource {
         let original = FileSnapshot::read(&path)?;
         match &original {
             Some(original) => (spec.validate)(&original.content).map_err(|error| {
-                AppError::ResourceValidation {
+                TargetError::ResourceValidation {
                     path: path.clone(),
                     source: Box::new(error),
                 }
             })?,
             None if spec.required => {
-                return Err(AppError::MissingActiveResource {
+                return Err(ActivationError::MissingResource {
                     resource: spec.key.clone(),
                     path,
-                });
+                }
+                .into());
             }
             None => {}
         }
@@ -78,7 +80,7 @@ impl ActiveResource {
 
     fn verify_unchanged(&self) -> Result<()> {
         if FileSnapshot::read(&self.path)? != self.original {
-            return Err(AppError::ActiveConfigurationChanged(self.path.clone()));
+            return Err(ActivationError::ConfigurationChanged(self.path.clone()).into());
         }
         Ok(())
     }
@@ -109,10 +111,11 @@ impl FileSnapshot {
         // optional resource, and directories/devices must never be read.
         let metadata = fs::metadata(path).with_path(path)?;
         if !metadata.is_file() {
-            return Err(AppError::InvalidResource(format!(
+            return Err(TargetError::InvalidResource(format!(
                 "'{}' does not resolve to a regular file",
                 path.display()
-            )));
+            ))
+            .into());
         }
         Ok(Some(Self {
             content: fs::read(path).with_path(path)?,
@@ -137,7 +140,7 @@ fn stage_adoption(destination: &Path, sources: &[ActiveResource]) -> Result<Path
             // permissions/attributes, then verify we copied the validated bytes.
             filesystem::copy_file(&source.path, &stored)?;
             if fs::read(&stored).with_path(&stored)? != original.content {
-                return Err(AppError::ActiveConfigurationChanged(source.path.clone()));
+                return Err(ActivationError::ConfigurationChanged(source.path.clone()).into());
             }
             transaction.stage_symlink(&source.path, &destination.join(filename), true)?;
         }
@@ -186,10 +189,10 @@ mod tests {
             ..spec("auth.json", true)
         };
         assert!(matches!(ActiveResource::read(&resource, path.clone()),
-            Err(AppError::MissingActiveResource { path: missing, .. }) if missing == path));
+            Err(AppError::Activation(ActivationError::MissingResource { path: missing, .. })) if missing == path));
         fs::write(&path, "{").unwrap();
         assert!(matches!(ActiveResource::read(&resource, path.clone()),
-            Err(AppError::ResourceValidation { path: invalid, source })
+            Err(AppError::Target(TargetError::ResourceValidation { path: invalid, source }))
                 if invalid == path && matches!(*source, AppError::Json(_))));
     }
 
@@ -316,7 +319,7 @@ mod tests {
         let transaction = stage_adoption(&destination, &sources).unwrap();
         fs::write(&sources[1].path, "new credentials").unwrap();
         assert!(matches!(commit_adoption(transaction, &sources),
-            Err(AppError::ActiveConfigurationChanged(path)) if path == sources[1].path));
+            Err(AppError::Activation(ActivationError::ConfigurationChanged(path))) if path == sources[1].path));
         assert!(!destination.exists());
         assert!(!sources[0].path.is_symlink());
         assert!(!sources[1].path.is_symlink());

@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::config;
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{AppError, IoContext, ProfileError, Result, TransactionError};
 use crate::profile::{self, activation, storage};
 use crate::targets::TargetSpec;
 use crate::ui::{prompt, style};
@@ -19,7 +19,7 @@ pub fn run(target: &TargetSpec, old_name: Option<String>, new_name: Option<Strin
     profile::validate_name(&new_name)?;
     let new_dir = config::profile_dir(target, &new_name)?;
     if new_dir.exists() {
-        return Err(AppError::ProfileExists(new_name));
+        return Err(ProfileError::Exists(new_name).into());
     }
 
     let old_dir = config::profile_dir(target, &old_name)?;
@@ -28,7 +28,10 @@ pub fn run(target: &TargetSpec, old_name: Option<String>, new_name: Option<Strin
     fs::rename(&old_dir, &new_dir).with_path(&old_dir)?;
     if was_active && let Err(error) = activation::switch(target, &new_name, false) {
         // The links already refer to new_dir when only backup cleanup failed.
-        if matches!(error, AppError::TransactionCleanupFailed(_)) {
+        if matches!(
+            error,
+            AppError::Transaction(TransactionError::CleanupFailed(_))
+        ) {
             return Err(error);
         }
         let rollback = fs::rename(&new_dir, &old_dir).with_path(&new_dir);

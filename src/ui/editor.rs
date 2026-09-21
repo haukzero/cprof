@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{AppError, EditorError, IoContext, Result};
 use crate::filesystem::transaction::PathTransaction;
 
 pub struct EditSession {
@@ -24,10 +24,10 @@ impl EditSession {
             {
                 Some(command) => {
                     let mut words = shell_words::split(&command)
-                        .map_err(|error| AppError::InvalidEditorCommand(error.to_string()))?
+                        .map_err(|error| EditorError::InvalidCommand(error.to_string()))?
                         .into_iter();
                     let editor = words.next().ok_or_else(|| {
-                        AppError::InvalidEditorCommand("command is empty".to_string())
+                        EditorError::InvalidCommand("command is empty".to_string())
                     })?;
                     (editor, words.collect())
                 }
@@ -107,9 +107,9 @@ impl EditSession {
             .args(&self.editor_args)
             .arg(&draft)
             .status()
-            .map_err(|_| AppError::EditorNotFound(self.editor.clone()))?;
+            .map_err(|_| EditorError::NotFound(self.editor.clone()))?;
         if !status.success() {
-            return Err(AppError::EditorFailed);
+            return Err(EditorError::Failed.into());
         }
         let after = fs::read(&draft).with_path(&draft)?;
         if replace && after == before {
@@ -119,7 +119,7 @@ impl EditSession {
                 .discard_last()?;
             return Ok(false);
         }
-        validate(&after).map_err(|source| AppError::EditNotCommitted {
+        validate(&after).map_err(|source| EditorError::NotCommitted {
             source: Box::new(source),
         })?;
         Ok(true)

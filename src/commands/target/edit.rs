@@ -1,5 +1,5 @@
 use crate::cli::EditorOptions;
-use crate::error::{AppError, Result};
+use crate::error::{ProfileError, Result};
 use crate::profile::storage;
 use crate::targets::{ResourceSpec, TargetSpec};
 use crate::ui::{editor::EditSession, prompt, style};
@@ -21,7 +21,7 @@ pub fn run(
         let path = storage::resource_path(target, &name, resource)?;
         if !path.exists() {
             if resource.required {
-                return Err(AppError::IncompleteProfile(name.clone()));
+                return Err(ProfileError::Incomplete(name.clone()).into());
             }
             continue;
         }

@@ -10,7 +10,7 @@ use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObj
 use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 
 use crate::config::home;
-use crate::error::{AppError, Result};
+use crate::error::{AppError, ElevationError, Result};
 
 use super::arguments::{ELEVATED_HOME_ARG, quote_arg, split_elevation_prefix};
 
@@ -24,7 +24,7 @@ pub fn prepare_args(args: Vec<OsString>) -> Result<Vec<OsString>> {
         home::set_override(home)?;
         ELEVATED
             .set(())
-            .map_err(|_| AppError::ElevationAlreadyInitialized)?;
+            .map_err(|_| ElevationError::AlreadyInitialized)?;
     }
     Ok(args)
 }
@@ -66,7 +66,7 @@ pub(super) fn run_as_admin(args: &[OsString]) -> Result<()> {
 
     let launched = unsafe { ShellExecuteExW(&mut info) } != 0;
     if !launched || info.hProcess.is_null() {
-        return Err(AppError::ElevationFailed);
+        return Err(ElevationError::Failed.into());
     }
 
     let waited = unsafe { WaitForSingleObject(info.hProcess, u32::MAX) };
@@ -76,7 +76,7 @@ pub(super) fn run_as_admin(args: &[OsString]) -> Result<()> {
     if waited == WAIT_OBJECT_0 && read_exit_code != 0 && exit_code == 0 {
         Ok(())
     } else {
-        Err(AppError::ElevationFailed)
+        Err(ElevationError::Failed.into())
     }
 }
 

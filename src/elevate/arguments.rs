@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::iter::repeat_n;
 use std::path::PathBuf;
 
-use crate::error::{AppError, Result};
+use crate::error::{ElevationError, Result};
 
 pub(super) const ELEVATED_HOME_ARG: &str = "--elevated-home";
 
@@ -15,7 +15,7 @@ pub(super) fn split_elevation_prefix(
         return Ok((None, args));
     }
     let mut args = args.into_iter().skip(1);
-    let home = args.next().ok_or(AppError::MissingElevatedHome)?;
+    let home = args.next().ok_or(ElevationError::MissingHome)?;
     Ok((Some(home.into()), args.collect()))
 }
 
@@ -59,7 +59,7 @@ mod tests {
     use crate::cli::{Cli, RootCommand, TargetCommand, command_with_extra_targets};
     use crate::elevate::prepare_args;
     #[cfg(windows)]
-    use crate::error::AppError;
+    use crate::error::{AppError, PathError};
 
     use super::{quote_arg, split_elevation_prefix};
 
@@ -150,7 +150,7 @@ mod tests {
                     home.into(),
                     "targets".into()
                 ]),
-                Err(AppError::UnsafePath(_))
+                Err(AppError::Path(PathError::Unsafe(_)))
             ));
         }
     }

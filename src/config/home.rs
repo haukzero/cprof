@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::error::{AppError, Result};
+use crate::error::{ConfigError, Result};
+#[cfg(windows)]
+use crate::error::{ElevationError, PathError};
 
 static OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -10,17 +12,17 @@ pub(crate) fn dir() -> Result<PathBuf> {
         .get()
         .cloned()
         .or_else(dirs::home_dir)
-        .ok_or(AppError::NoHomeDir)
+        .ok_or_else(|| ConfigError::NoHomeDir.into())
 }
 
 #[cfg(windows)]
 pub(crate) fn set_override(path: PathBuf) -> Result<()> {
     if !path.is_absolute() {
-        return Err(AppError::UnsafePath(path.display().to_string()));
+        return Err(PathError::Unsafe(path.display().to_string()).into());
     }
     OVERRIDE
         .set(path)
-        .map_err(|_| AppError::ElevationAlreadyInitialized)
+        .map_err(|_| ElevationError::AlreadyInitialized.into())
 }
 
 #[cfg(test)]

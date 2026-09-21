@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::error::{AppError, Result};
+use crate::error::{PackageError, Result};
 use crate::filesystem;
 use crate::package;
 use crate::profile::storage;
@@ -10,7 +10,7 @@ pub fn run(targets: &TargetRepository, target: &TargetSpec, save: Option<String>
     let output_path = save.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     let output = Path::new(&output_path);
     let package = collect_target(target)?
-        .ok_or_else(|| AppError::InvalidPackage("No profiles to pack".to_string()))?;
+        .ok_or_else(|| PackageError::Invalid("No profiles to pack".to_string()))?;
     write_package(targets, output, &[package])
 }
 

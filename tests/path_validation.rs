@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use cprof::config;
-use cprof::error::{AppError, Result};
+use cprof::error::{AppError, PathError, Result, TargetError};
 use cprof::targets::{ResourceSpec, TargetSpec};
 
 fn target() -> TargetSpec {
@@ -31,7 +31,7 @@ fn assert_invalid_component(value: &'static str) {
     assert!(
         matches!(
             config::profiles_dir(&invalid_target),
-            Err(AppError::InvalidTargetId(_))
+            Err(AppError::Target(TargetError::InvalidId(_)))
         ),
         "target id: {value:?}"
     );
@@ -42,7 +42,7 @@ fn assert_invalid_component(value: &'static str) {
     assert!(
         matches!(
             config::profile_resource(&target(), "test", &spec),
-            Err(AppError::InvalidFilename(_))
+            Err(AppError::Path(PathError::InvalidFilename(_)))
         ),
         "filename: {value:?}"
     );
@@ -70,7 +70,7 @@ fn windows_prefixes_are_rejected_on_every_platform() {
         assert!(
             matches!(
                 target().active_path(home.path(), &resource(Some(value))),
-                Err(AppError::InvalidActivePath(_))
+                Err(AppError::Path(PathError::InvalidActivePath(_)))
             ),
             "active_path: {value:?}"
         );
@@ -94,7 +94,7 @@ fn relative_active_paths_reject_roots_traversal_and_control_characters() {
         assert!(
             matches!(
                 target().active_path(home.path(), &resource(Some(value))),
-                Err(AppError::InvalidActivePath(_))
+                Err(AppError::Path(PathError::InvalidActivePath(_)))
             ),
             "active_path: {value:?}"
         );
@@ -132,7 +132,7 @@ fn invalid_absolute_paths_return_errors() {
         assert!(
             matches!(
                 target().active_path(home.path(), &spec),
-                Err(AppError::InvalidActivePath(_))
+                Err(AppError::Path(PathError::InvalidActivePath(_)))
             ),
             "absolute_active_path: {value:?}"
         );
@@ -144,7 +144,7 @@ fn an_active_path_is_required() {
     let home = tempfile::tempdir().unwrap();
     assert!(matches!(
         target().active_path(home.path(), &resource(None)),
-        Err(AppError::InvalidActivePath(_))
+        Err(AppError::Path(PathError::InvalidActivePath(_)))
     ));
 }
 
@@ -152,6 +152,6 @@ fn an_active_path_is_required() {
 fn home_must_be_absolute() {
     assert!(matches!(
         target().active_path(&PathBuf::from("relative-home"), &resource(Some("settings"))),
-        Err(AppError::UnsafePath(_))
+        Err(AppError::Path(PathError::Unsafe(_)))
     ));
 }

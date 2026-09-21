@@ -4,7 +4,7 @@ use std::path::Path;
 use std::slice;
 use std::sync::Arc;
 
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{IoContext, PackageError, Result};
 use crate::filesystem::transaction::PathTransaction;
 use crate::package;
 use crate::profile::{self, storage};
@@ -23,7 +23,7 @@ pub fn run(
         .into_iter()
         .find(|package| package.target == target.id)
         .ok_or_else(|| {
-            AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
+            PackageError::Invalid(format!("Package does not contain target '{}'", target.id))
         })?;
     let (target_configs, configs_changed) =
         merge_target_configs(targets, slice::from_ref(&package), force)?;
@@ -158,7 +158,7 @@ pub(crate) fn read_package(
     let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     let path = Path::new(&path);
     if !path.exists() {
-        return Err(AppError::PackageNotFound(path.to_path_buf()));
+        return Err(PackageError::NotFound(path.to_path_buf()).into());
     }
     package::decode_with_repository(targets, &fs::read(path).with_path(path)?)
 }
@@ -168,7 +168,7 @@ fn effective_target_from_config(
     configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<Arc<TargetSpec>> {
     let config = external::find_external_config(configs, &package.target).ok_or_else(|| {
-        AppError::InvalidPackage(format!(
+        PackageError::Invalid(format!(
             "Merged configuration does not contain target '{}'",
             package.target
         ))

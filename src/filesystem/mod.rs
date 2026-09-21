@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{AppError, IoContext, PathError, Result};
 
 mod platform;
 pub(crate) mod transaction;
@@ -83,7 +83,7 @@ fn parent(path: &Path) -> Result<&Path> {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => Ok(parent),
         Some(_) => Ok(Path::new(".")),
-        None => Err(AppError::UnsafePath(path.display().to_string())),
+        None => Err(PathError::Unsafe(path.display().to_string()).into()),
     }
 }
 

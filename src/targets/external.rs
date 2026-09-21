@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli;
 use crate::config::{self, home, paths};
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{ConfigError, IoContext, Result, TargetError};
 use crate::filesystem::transaction::PathTransaction;
 use crate::ui::style;
 
@@ -48,16 +48,18 @@ impl ExternalTargetConfig {
         paths::validate_target_id(&self.name)?;
         paths::validate_target_id(target_id)?;
         if BUILTIN_TARGETS.iter().any(|target| target.id == target_id) {
-            return Err(AppError::TargetConflict(format!(
+            return Err(TargetError::Conflict(format!(
                 "target id '{}' conflicts with an existing target",
                 target_id
-            )));
+            ))
+            .into());
         }
         if command_names.iter().any(|name| name == target_id) {
-            return Err(AppError::TargetConflict(format!(
+            return Err(TargetError::Conflict(format!(
                 "target id '{}' conflicts with the command of the same name",
                 target_id
-            )));
+            ))
+            .into());
         }
         let mut keys = HashSet::new();
         let mut filenames = HashSet::new();
@@ -66,35 +68,39 @@ impl ExternalTargetConfig {
             if resource.resolved_key().is_empty()
                 || resource.resolved_key().chars().any(char::is_control)
             {
-                return Err(AppError::TargetConflict(format!(
+                return Err(TargetError::Conflict(format!(
                     "target '{}' declares an invalid empty or control-character resource key",
                     target_id
-                )));
+                ))
+                .into());
             }
             if !keys.insert(resource.resolved_key()) {
-                return Err(AppError::TargetConflict(format!(
+                return Err(TargetError::Conflict(format!(
                     "target '{}' declares duplicate resource '{}'",
                     target_id,
                     resource.resolved_key()
-                )));
+                ))
+                .into());
             }
 
             paths::validate_filename(&resource.filename)?;
             if !filenames.insert(resource.filename.as_str()) {
-                return Err(AppError::TargetConflict(format!(
+                return Err(TargetError::Conflict(format!(
                     "target '{}' declares duplicate filename '{}'",
                     target_id, resource.filename
-                )));
+                ))
+                .into());
             }
 
             let active_path = resource.effective_active_path(target_id, home)?;
             if let Some(previous) = active_paths.insert(active_path, resource.resolved_key()) {
-                return Err(AppError::TargetConflict(format!(
+                return Err(TargetError::Conflict(format!(
                     "target '{}' declares resources '{}' and '{}' with the same active path",
                     target_id,
                     previous,
                     resource.resolved_key()
-                )));
+                ))
+                .into());
             }
         }
         Ok(())
@@ -153,7 +159,7 @@ impl ExternalResourceConfig {
             self.absolute_active_path.as_deref(),
         )
         .map_err(|error| {
-            AppError::TargetConflict(format!(
+            TargetError::Conflict(format!(
                 "target '{target_id}' resource '{}': {error}",
                 self.resolved_key()
             ))
@@ -213,17 +219,19 @@ fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -
         // definition disagree instead of serializing an ambiguous config.
         paths::validate_target_id(name)?;
         if config.name != *name {
-            return Err(AppError::TargetConflict(format!(
+            return Err(TargetError::Conflict(format!(
                 "target definition name '{}' does not match table name '{}'",
                 config.name, name
-            )));
+            ))
+            .into());
         }
         config.validate(command_names, &home)?;
         if !ids.insert(config.resolved_id()) {
-            return Err(AppError::TargetConflict(format!(
+            return Err(TargetError::Conflict(format!(
                 "target id '{}' declared by '{name}' conflicts with an existing target",
                 config.resolved_id()
-            )));
+            ))
+            .into());
         }
     }
     Ok(())
@@ -253,13 +261,13 @@ fn parse_external_configs(
     content: &[u8],
     path: &Path,
 ) -> Result<BTreeMap<String, ExternalTargetConfig>> {
-    let content = str::from_utf8(content).map_err(|source| AppError::ExternalConfigEncoding {
+    let content = str::from_utf8(content).map_err(|source| ConfigError::Encoding {
         path: path.to_path_buf(),
         source,
     })?;
     let configured =
         toml::from_str::<BTreeMap<String, ExtraTarget>>(content).map_err(|source| {
-            AppError::ExternalConfigParse {
+            ConfigError::Parse {
                 path: path.to_path_buf(),
                 source,
             }
@@ -298,7 +306,7 @@ fn serialize_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) 
             },
         );
     }
-    let content = toml::to_string(&serialized).map_err(AppError::ExternalConfigSerialize)?;
+    let content = toml::to_string(&serialized).map_err(ConfigError::Serialize)?;
     Ok(content.into_bytes())
 }
 
@@ -407,7 +415,7 @@ mod tests {
 
     use crate::cli;
     use crate::config::home;
-    use crate::error::AppError;
+    use crate::error::{AppError, TargetError};
 
     use super::{
         ExternalResourceConfig, ExternalTargetConfig, ExtraTarget, merge_external_configs,
@@ -424,7 +432,7 @@ mod tests {
             };
             assert!(matches!(
                 spec_from_external_config(&config),
-                Err(AppError::TargetConflict(_))
+                Err(AppError::Target(TargetError::Conflict(_)))
             ));
 
             // A table name may match a command when its explicit id does not.

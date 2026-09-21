@@ -32,12 +32,13 @@ mod tests {
     use std::io;
 
     use super::*;
+    use crate::error::{ProfileError, TransactionError};
 
     #[test]
     fn ordinary_errors_are_returned_without_elevation() {
         assert!(matches!(
-            retry_as_admin(AppError::ProfileExists("existing".into()), &[]),
-            Err(AppError::ProfileExists(name)) if name == "existing"
+            retry_as_admin(ProfileError::Exists("existing".into()).into(), &[]),
+            Err(AppError::Profile(ProfileError::Exists(name))) if name == "existing"
         ));
     }
 
@@ -46,20 +47,22 @@ mod tests {
         // ERROR_PRIVILEGE_NOT_HELD on Windows. Nesting it in these errors must
         // not launch another process even on that platform.
         let privilege = || AppError::Io(io::Error::from_raw_os_error(1314));
-        let error =
-            privilege().with_recovery([AppError::TransactionConflict("recovery failed".into())]);
+        let error = privilege()
+            .with_recovery([TransactionError::Conflict("recovery failed".into()).into()]);
         assert!(!is_privilege_error(&error));
         assert!(error.source().is_some());
         assert!(matches!(
             retry_as_admin(error, &[]),
-            Err(AppError::RecoveryFailed { .. })
+            Err(AppError::Transaction(
+                TransactionError::RecoveryFailed { .. }
+            ))
         ));
 
-        let error = AppError::TransactionCleanupFailed(vec![privilege()]);
+        let error = TransactionError::CleanupFailed(vec![privilege()]).into();
         assert!(!is_privilege_error(&error));
         assert!(matches!(
             retry_as_admin(error, &[]),
-            Err(AppError::TransactionCleanupFailed(_))
+            Err(AppError::Transaction(TransactionError::CleanupFailed(_)))
         ));
     }
 }

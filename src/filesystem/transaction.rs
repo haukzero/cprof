@@ -4,7 +4,7 @@ use std::io;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
-use crate::error::{AppError, IoContext, Result};
+use crate::error::{AppError, IoContext, Result, TransactionError};
 
 use super::platform::{create_symlink, sync_parent, sync_path};
 use super::{create_staged_file, parent, path_exists, remove_any_if_exists, temporary_sibling};
@@ -15,7 +15,7 @@ fn transaction_conflict(path: &Path, expected_existing: bool) -> AppError {
     } else {
         "to remain absent"
     };
-    AppError::TransactionConflict(format!("expected '{}' {expectation}", path.display()))
+    TransactionError::Conflict(format!("expected '{}' {expectation}", path.display())).into()
 }
 
 pub(crate) struct PathTransaction {
@@ -151,7 +151,7 @@ impl PathTransaction {
         if cleanup_errors.is_empty() {
             Ok(())
         } else {
-            Err(AppError::TransactionCleanupFailed(cleanup_errors))
+            Err(TransactionError::CleanupFailed(cleanup_errors).into())
         }
     }
 
@@ -213,10 +213,11 @@ impl PathOperation {
             return Err(transaction_conflict(&self.destination, self.replace));
         }
         if path_exists(&self.rollback)? {
-            return Err(AppError::TransactionConflict(format!(
+            return Err(TransactionError::Conflict(format!(
                 "Transaction rollback path '{}' already exists",
                 self.rollback.display()
-            )));
+            ))
+            .into());
         }
 
         if let Some(staging) = &self.staging {
@@ -285,7 +286,7 @@ mod tests {
     use std::io;
     use std::path::Path;
 
-    use crate::error::AppError;
+    use crate::error::{AppError, TransactionError};
 
     use super::{PathTransaction, temporary_sibling};
 
@@ -358,7 +359,7 @@ mod tests {
         fs::write(&conflict, "concurrent").unwrap();
         assert!(matches!(
             transaction.commit(),
-            Err(AppError::TransactionConflict(_))
+            Err(AppError::Transaction(TransactionError::Conflict(_)))
         ));
         assert_eq!(fs::read_to_string(&removed).unwrap(), "original");
 
@@ -384,12 +385,13 @@ mod tests {
         transaction.operations[0].apply().unwrap();
         // Simulate a backup disappearing before the operation can recover.
         fs::remove_file(&transaction.operations[0].rollback).unwrap();
-        let error = transaction.cancel(AppError::TransactionConflict("primary failure".into()));
-        let AppError::RecoveryFailed { source, errors } = error else {
+        let error = transaction.cancel(TransactionError::Conflict("primary failure".into()).into());
+        let AppError::Transaction(TransactionError::RecoveryFailed { source, errors }) = error
+        else {
             panic!("expected a recovery failure")
         };
         assert!(
-            matches!(*source, AppError::TransactionConflict(ref message) if message == "primary failure")
+            matches!(*source, AppError::Transaction(TransactionError::Conflict(ref message)) if message == "primary failure")
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].is_io_kind(io::ErrorKind::NotFound));

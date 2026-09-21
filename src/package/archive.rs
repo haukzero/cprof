@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, PackageError, Result};
 
 const MAGIC: &[u8; 8] = b"CPROF\0\0\0";
 const VERSION: u16 = 2;
@@ -54,14 +54,14 @@ fn frame(archive: &[u8]) -> Vec<u8> {
 
 fn unframe(data: &[u8]) -> Result<Vec<u8>> {
     if data.len() < HEADER_LEN + CHECKSUM_LEN || &data[..MAGIC.len()] != MAGIC {
-        return Err(AppError::InvalidPackage("Not a cprof package".to_string()));
+        return Err(PackageError::Invalid("Not a cprof package".to_string()).into());
     }
     let version_offset = MAGIC.len();
     let version = u16::from_le_bytes(data[version_offset..version_offset + 2].try_into().unwrap());
     if version != VERSION {
-        return Err(AppError::InvalidPackage(format!(
-            "Unsupported package version: {version}"
-        )));
+        return Err(
+            PackageError::Invalid(format!("Unsupported package version: {version}")).into(),
+        );
     }
 
     let length_offset = version_offset + 2;
@@ -69,20 +69,18 @@ fn unframe(data: &[u8]) -> Result<Vec<u8>> {
         u64::from_le_bytes(data[length_offset..length_offset + 8].try_into().unwrap());
     let payload_len: usize = payload_len
         .try_into()
-        .map_err(|_| AppError::InvalidPackage("Package is too large".to_string()))?;
+        .map_err(|_| PackageError::Invalid("Package is too large".to_string()))?;
     let expected_len = HEADER_LEN
         .checked_add(payload_len)
         .and_then(|length| length.checked_add(CHECKSUM_LEN))
-        .ok_or_else(|| AppError::InvalidPackage("Invalid package length".to_string()))?;
+        .ok_or_else(|| PackageError::Invalid("Invalid package length".to_string()))?;
     if data.len() != expected_len {
-        return Err(AppError::InvalidPackage(
-            "Invalid package length".to_string(),
-        ));
+        return Err(PackageError::Invalid("Invalid package length".to_string()).into());
     }
 
     let checksum_offset = HEADER_LEN + payload_len;
     if checksum(&data[..checksum_offset]) != data[checksum_offset..] {
-        return Err(AppError::ChecksumMismatch);
+        return Err(PackageError::ChecksumMismatch.into());
     }
     Ok(data[HEADER_LEN..checksum_offset].to_vec())
 }
@@ -92,18 +90,21 @@ fn checksum(data: &[u8]) -> [u8; CHECKSUM_LEN] {
 }
 
 fn invalid_archive(error: zip::result::ZipError) -> AppError {
-    AppError::InvalidPackage(format!("Invalid package archive: {error}"))
+    PackageError::Invalid(format!("Invalid package archive: {error}")).into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{HEADER_LEN, frame, unframe};
-    use crate::error::AppError;
+    use crate::error::{AppError, PackageError};
 
     #[test]
     fn envelope_rejects_corruption() {
         let mut package = frame(b"archive bytes");
         package[HEADER_LEN] ^= 1;
-        assert!(matches!(unframe(&package), Err(AppError::ChecksumMismatch)));
+        assert!(matches!(
+            unframe(&package),
+            Err(AppError::Package(PackageError::ChecksumMismatch))
+        ));
     }
 }

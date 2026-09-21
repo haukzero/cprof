@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, ElevationError, Result};
 
 pub fn prepare_args(args: Vec<OsString>) -> Result<Vec<OsString>> {
     Ok(args)
@@ -15,5 +15,5 @@ pub fn is_privilege_error(_: &AppError) -> bool {
 }
 
 pub(super) fn run_as_admin(_: &[OsString]) -> Result<()> {
-    Err(AppError::ElevationFailed)
+    Err(ElevationError::Failed.into())
 }

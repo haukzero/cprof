@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
 
-use crate::error::{AppError, Result};
+use crate::error::{InteractionError, ProfileError, Result};
 use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 
 fn interact<T>(interaction: impl FnOnce() -> dialoguer::Result<T>) -> Result<T> {
     if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
-        return Err(AppError::InteractiveInputRequired);
+        return Err(InteractionError::InputRequired.into());
     }
-    Ok(interaction()?)
+    Ok(interaction().map_err(InteractionError::from)?)
 }
 
 pub(crate) fn input(prompt: &str) -> Result<String> {
@@ -59,7 +59,7 @@ pub(crate) fn select_profile(
         None => {
             let profiles = storage::list(target)?;
             if profiles.is_empty() {
-                return Err(AppError::ProfileNotFound("(no profiles exist)".to_string()));
+                return Err(ProfileError::NotFound("(no profiles exist)".to_string()).into());
             }
             let active = activation::active_name_from_profiles(target, &profiles)?;
             let labels: Vec<String> = profiles

@@ -1,6 +1,6 @@
 use std::str;
 
-use crate::error::{AppError, Result};
+use crate::error::{AppError, Result, TargetError};
 
 use super::{ResourceSpec, TargetSpec};
 
@@ -9,10 +9,10 @@ const AUTH_TEMPLATE: &[u8] = b"{}\n";
 
 fn validate_toml(content: &[u8]) -> Result<()> {
     let text = str::from_utf8(content)
-        .map_err(|_| AppError::InvalidResource("config.toml is not valid UTF-8".to_string()))?;
+        .map_err(|_| TargetError::InvalidResource("config.toml is not valid UTF-8".to_string()))?;
     toml::from_str::<toml::Value>(text)
         .map(|_| ())
-        .map_err(|error| AppError::InvalidResource(format!("invalid TOML: {error}")))
+        .map_err(|error| TargetError::InvalidResource(format!("invalid TOML: {error}")).into())
 }
 
 fn validate_json(content: &[u8]) -> Result<()> {
