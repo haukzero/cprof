@@ -1,21 +1,34 @@
-use crate::activation;
+use std::iter::repeat_n;
+use std::result;
+
+use serde::{Serialize, Serializer};
+use unicode_width::UnicodeWidthStr;
+
+use crate::commands::warn_adopt;
 use crate::config;
 use crate::error::Result;
-use crate::profile;
+use crate::profile::activation::{self, Status};
+use crate::profile::{ProfileCounts, storage};
 use crate::targets;
-use serde::Serialize;
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Serialize)]
 struct TargetRow {
     name: String,
     #[serde(rename = "type")]
     kind: &'static str,
-    profiles: profile::ProfileCounts,
-    active: Option<String>,
+    profiles: ProfileCounts,
+    #[serde(rename = "active", serialize_with = "serialize_active_name")]
+    status: Status,
     store_dir: String,
     #[serde(skip)]
     profiles_display: String,
+}
+
+fn serialize_active_name<S: Serializer>(
+    status: &Status,
+    serializer: S,
+) -> result::Result<S::Ok, S::Error> {
+    status.active_name().serialize(serializer)
 }
 
 struct TableColumn<T> {
@@ -30,15 +43,15 @@ impl TargetRow {
         } else {
             "extra"
         };
-        let profiles = profile::counts(target)?;
+        let profiles = storage::counts(target)?;
         let store_dir = config::profiles_dir(target)?.display().to_string();
-        let active = activation::active_name(target)?;
+        let status = activation::status(target)?;
         Ok(TargetRow {
             name: target.id.to_string(),
             kind,
             profiles_display: profiles.to_string(),
             profiles,
-            active,
+            status,
             store_dir,
         })
     }
@@ -60,7 +73,7 @@ impl TargetRow {
     }
 
     fn active(&self) -> &str {
-        self.active.as_deref().unwrap_or("(none)")
+        self.status.display_name()
     }
 }
 
@@ -93,6 +106,9 @@ pub fn run(targets: &targets::TargetRepository, json: bool) -> Result<()> {
         .iter()
         .map(|target| TargetRow::new(target))
         .collect::<Result<Vec<_>>>()?;
+
+    rows.iter()
+        .for_each(|row| warn_adopt(&row.name, &row.status));
 
     if json {
         println!("{}", serde_json::to_string_pretty(&rows)?);
@@ -138,7 +154,7 @@ fn render_row<T>(
         let value = row.map_or(column.header, |row| (column.value)(row));
         output.push_str(value);
         if index < last_column {
-            output.extend(std::iter::repeat_n(' ', width - display_width(value)));
+            output.extend(repeat_n(' ', width - display_width(value)));
         }
     }
     output.push('\n');
@@ -153,15 +169,19 @@ fn render_separator(output: &mut String, widths: &[usize]) {
         if index > 0 {
             output.push_str("  ");
         }
-        output.extend(std::iter::repeat_n('-', *width));
+        output.extend(repeat_n('-', *width));
     }
     output.push('\n');
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{TARGET_COLUMNS, TargetRow, render_table};
     use unicode_width::UnicodeWidthStr;
+
+    use crate::profile::ProfileCounts;
+    use crate::profile::activation::Status;
+
+    use super::{TARGET_COLUMNS, TargetRow, render_table};
 
     #[test]
     fn renders_target_columns() {
@@ -169,13 +189,13 @@ mod tests {
             &[TargetRow {
                 name: "codex".to_string(),
                 kind: "built-in",
-                profiles: crate::profile::ProfileCounts {
+                profiles: ProfileCounts {
                     total: 3,
                     incomplete: 1,
                 },
                 profiles_display: "3 (1 incomplete)".to_string(),
                 store_dir: "/tmp/profiles/codex".to_string(),
-                active: None,
+                status: Status::NoFiles,
             }],
             TARGET_COLUMNS,
         );
@@ -225,23 +245,23 @@ mod tests {
                 TargetRow {
                     name: "中文".to_string(),
                     kind: "extra",
-                    profiles: crate::profile::ProfileCounts {
+                    profiles: ProfileCounts {
                         total: 1,
                         incomplete: 0,
                     },
                     profiles_display: "1 (0 incomplete)".to_string(),
-                    active: Some("配置".to_string()),
+                    status: Status::Active("配置".to_string()),
                     store_dir: "/tmp/profiles/chinese".to_string(),
                 },
                 TargetRow {
                     name: "ascii".to_string(),
                     kind: "extra",
-                    profiles: crate::profile::ProfileCounts {
+                    profiles: ProfileCounts {
                         total: 1,
                         incomplete: 0,
                     },
                     profiles_display: "1 (0 incomplete)".to_string(),
-                    active: Some("active".to_string()),
+                    status: Status::Active("active".to_string()),
                     store_dir: "/tmp/profiles/ascii".to_string(),
                 },
             ],

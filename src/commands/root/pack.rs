@@ -5,8 +5,8 @@ use std::sync::Arc;
 use crate::commands::target;
 use crate::error::{AppError, Result};
 use crate::package;
-use crate::prompt;
 use crate::targets::{TargetRepository, TargetSpec};
+use crate::ui::prompt;
 
 pub fn run(
     targets: &TargetRepository,

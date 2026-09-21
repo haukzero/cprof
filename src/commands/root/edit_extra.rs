@@ -1,8 +1,8 @@
 use crate::cli::EditorOptions;
 use crate::config;
-use crate::editor::EditSession;
 use crate::error::Result;
-use crate::targets;
+use crate::targets::external;
+use crate::ui::editor::EditSession;
 
 const DEFAULT_TEMPLATE: &[u8] = br#"# Example for extra targets
 # [[example.resources]]
@@ -23,7 +23,7 @@ pub fn run(editor: EditorOptions) -> Result<()> {
     session.edit_or_create(
         &path,
         DEFAULT_TEMPLATE,
-        targets::validate_external_configs_content,
+        external::validate_external_configs_content,
     )?;
     session.commit()?;
     Ok(())

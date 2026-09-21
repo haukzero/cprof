@@ -1,15 +1,14 @@
-use std::io::IsTerminal;
+use std::io::{self, IsTerminal};
 use std::sync::Arc;
 
 use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
 
-use crate::activation;
 use crate::error::{AppError, Result};
-use crate::profile;
+use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 
 fn interact<T>(interaction: impl FnOnce() -> dialoguer::Result<T>) -> Result<T> {
-    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
         return Err(AppError::InteractiveInputRequired);
     }
     Ok(interaction()?)
@@ -58,7 +57,7 @@ pub(crate) fn select_profile(
     match name {
         Some(name) => Ok(name),
         None => {
-            let profiles = profile::list(target)?;
+            let profiles = storage::list(target)?;
             if profiles.is_empty() {
                 return Err(AppError::ProfileNotFound("(no profiles exist)".to_string()));
             }
@@ -83,7 +82,7 @@ pub(crate) fn select_profile(
 }
 
 pub(crate) fn select_copy_source(target: &TargetSpec) -> Result<Option<String>> {
-    let profiles = profile::list(target)?;
+    let profiles = storage::list(target)?;
     let active = activation::active_name_from_profiles(target, &profiles)?;
     let mut labels = vec!["Default template".to_string()];
     labels.extend(profiles.iter().map(|profile| {

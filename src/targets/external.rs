@@ -1,16 +1,17 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config;
+use crate::cli;
+use crate::config::{self, home, paths};
 use crate::error::{AppError, IoContext, Result};
-use crate::fs_util;
-use crate::paths;
-use crate::style;
+use crate::filesystem::transaction::PathTransaction;
+use crate::ui::style;
 
-use super::{EXTRA_TARGET_FILE, ResourceSpec, TargetSpec};
+use super::{BUILTIN_TARGETS, EXTRA_TARGET_FILE, ResourceSpec, TargetSpec, external_validate};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalTargetConfig {
@@ -46,10 +47,7 @@ impl ExternalTargetConfig {
         // path component even when an explicit id is supplied.
         paths::validate_target_id(&self.name)?;
         paths::validate_target_id(target_id)?;
-        if super::BUILTIN_TARGETS
-            .iter()
-            .any(|target| target.id == target_id)
-        {
+        if BUILTIN_TARGETS.iter().any(|target| target.id == target_id) {
             return Err(AppError::TargetConflict(format!(
                 "target id '{}' conflicts with an existing target",
                 target_id
@@ -199,14 +197,14 @@ impl ExternalResourceConfig {
             absolute_active_path: self.absolute_active_path.clone(),
             required: self.required.unwrap_or(true),
             template: self.template.clone().unwrap_or_default().into_bytes(),
-            validate: super::external_validate,
+            validate: external_validate,
         }
     }
 }
 
 fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -> Result<()> {
-    let command_names = crate::cli::command_names();
-    let home = config::home_dir()?;
+    let command_names = cli::command_names();
+    let home = home::dir()?;
     let mut ids = HashSet::new();
     for (name, config) in configs {
         // The TOML table key is the external definition's name and is also
@@ -235,7 +233,7 @@ fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -
 /// complete TOML map. Package manifests use this boundary directly so a
 /// malformed embedded definition cannot depend on the caller's merge mode.
 pub(crate) fn validate_external_config(config: &ExternalTargetConfig) -> Result<()> {
-    config.validate(crate::cli::command_names(), &config::home_dir()?)
+    config.validate(cli::command_names(), &home::dir()?)
 }
 
 // Keep validation at the read/write boundary: unpack also accesses configs without all().
@@ -253,14 +251,19 @@ pub(crate) fn validate_external_configs_content(content: &[u8]) -> Result<()> {
 
 fn parse_external_configs(
     content: &[u8],
-    source: &Path,
+    path: &Path,
 ) -> Result<BTreeMap<String, ExternalTargetConfig>> {
-    let content = std::str::from_utf8(content).map_err(|error| {
-        AppError::Other(format!("Failed to parse '{}': {error}", source.display()))
+    let content = str::from_utf8(content).map_err(|source| AppError::ExternalConfigEncoding {
+        path: path.to_path_buf(),
+        source,
     })?;
-    let configured = toml::from_str::<BTreeMap<String, ExtraTarget>>(content).map_err(|error| {
-        AppError::Other(format!("Failed to parse '{}': {error}", source.display()))
-    })?;
+    let configured =
+        toml::from_str::<BTreeMap<String, ExtraTarget>>(content).map_err(|source| {
+            AppError::ExternalConfigParse {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
     let configs = configured
         .into_iter()
         .map(|(name, target)| {
@@ -273,7 +276,7 @@ fn parse_external_configs(
 }
 
 pub(crate) fn stage_external_configs(
-    transaction: &mut fs_util::PathTransaction,
+    transaction: &mut PathTransaction,
     configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<()> {
     let content = serialize_external_configs(configs)?;
@@ -295,9 +298,7 @@ fn serialize_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) 
             },
         );
     }
-    let content = toml::to_string(&serialized).map_err(|error| {
-        AppError::Other(format!("Failed to serialize {EXTRA_TARGET_FILE}: {error}"))
-    })?;
+    let content = toml::to_string(&serialized).map_err(AppError::ExternalConfigSerialize)?;
     Ok(content.into_bytes())
 }
 
@@ -327,8 +328,8 @@ where
     // merge callers from creating a validation bypass by supplying configs
     // directly instead of going through the TOML/manifest readers.
     validate_external_configs(&local)?;
-    let command_names = crate::cli::command_names();
-    let home = config::home_dir()?;
+    let command_names = cli::command_names();
+    let home = home::dir()?;
     for config in packaged {
         config.validate(command_names, &home)?;
     }
@@ -404,7 +405,9 @@ where
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::config;
+    use crate::cli;
+    use crate::config::home;
+    use crate::error::AppError;
 
     use super::{
         ExternalResourceConfig, ExternalTargetConfig, ExtraTarget, merge_external_configs,
@@ -413,7 +416,7 @@ mod tests {
 
     #[test]
     fn external_target_ids_cannot_shadow_root_commands() {
-        for name in crate::cli::command_names() {
+        for name in cli::command_names() {
             let config = ExternalTargetConfig {
                 name: "example".to_string(),
                 id: Some(name.clone()),
@@ -421,7 +424,7 @@ mod tests {
             };
             assert!(matches!(
                 spec_from_external_config(&config),
-                Err(crate::error::AppError::TargetConflict(_))
+                Err(AppError::TargetConflict(_))
             ));
 
             // A table name may match a command when its explicit id does not.
@@ -583,7 +586,7 @@ mod tests {
 
     #[test]
     fn absolute_active_path_is_supported_and_same_path_is_accepted() {
-        let home = config::home_dir().unwrap();
+        let home = home::dir().unwrap();
         let absolute = home.join(".config/demo/settings.json");
         let config = target(vec![resource(
             "settings",

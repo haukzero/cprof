@@ -1,11 +1,9 @@
-use crate::activation::{self, Status};
 use crate::cli::EditorOptions;
-use crate::editor::EditSession;
 use crate::error::{AppError, Result};
-use crate::profile;
-use crate::prompt;
-use crate::style;
+use crate::profile::activation::{self, Status};
+use crate::profile::storage;
 use crate::targets::TargetSpec;
+use crate::ui::{editor::EditSession, prompt, style};
 
 pub fn run(
     target: &TargetSpec,
@@ -24,18 +22,18 @@ pub fn run(
             (name, copy_from)
         }
     };
-    profile::create(target, &name, copy_from.as_deref())?;
+    storage::create(target, &name, copy_from.as_deref())?;
     let result = (|| {
         let mut session = EditSession::new(editor.editor, editor.editor_args)?;
         for resource in &target.resources {
-            let path = profile::resource_path(target, &name, resource)?;
+            let path = storage::resource_path(target, &name, resource)?;
             session.edit(&path, resource.validate)?;
         }
         session.commit()?;
         Ok::<(), AppError>(())
     })();
     if let Err(error) = result {
-        let _ = profile::delete(target, &name);
+        let _ = storage::delete(target, &name);
         return Err(error);
     }
 

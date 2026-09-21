@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::targets::{ExternalResourceConfig, ExternalTargetConfig, validate_external_config};
+use crate::targets::external::{self, ExternalResourceConfig, ExternalTargetConfig};
 
 const MAGIC: &[u8; 4] = b"CPMF";
 const VERSION: u8 = 3;
@@ -99,7 +99,7 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
 }
 
 fn write_external_config(bytes: &mut Vec<u8>, config: &ExternalTargetConfig) -> Result<()> {
-    validate_external_config(config).map_err(|error| {
+    external::validate_external_config(config).map_err(|error| {
         AppError::InvalidPackage(format!("Invalid target configuration: {error}"))
     })?;
     write_string(bytes, &config.name)?;
@@ -136,7 +136,7 @@ fn read_external_config(reader: &mut Reader<'_>) -> Result<ExternalTargetConfig>
         id,
         resources,
     };
-    validate_external_config(&config).map_err(|error| {
+    external::validate_external_config(&config).map_err(|error| {
         AppError::InvalidPackage(format!("Invalid target configuration: {error}"))
     })?;
     Ok(config)

@@ -1,11 +1,10 @@
-use crate::activation;
 use crate::error::Result;
-use crate::profile;
-use crate::style;
+use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
+use crate::ui::style;
 
 pub fn run(target: &TargetSpec) -> Result<()> {
-    let profiles = profile::list(target)?;
+    let profiles = storage::list(target)?;
     let active = activation::active_name_from_profiles(target, &profiles)?;
     if profiles.is_empty() {
         println!("No profiles found.");

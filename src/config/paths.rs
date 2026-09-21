@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::result;
 
 use crate::error::{AppError, IoContext, Result};
 
@@ -35,7 +37,7 @@ fn is_windows_reserved_component(value: &str) -> bool {
             })
 }
 
-pub(crate) fn validate_safe_component(value: &str) -> std::result::Result<(), ()> {
+pub(crate) fn validate_safe_component(value: &str) -> result::Result<(), ()> {
     if value.is_empty()
         || matches!(value, "." | "..")
         || value.contains(['/', '\\'])
@@ -164,7 +166,7 @@ pub(crate) fn join_storage_under(root: &Path, relative: &Path) -> Result<PathBuf
             return Err(AppError::UnsafePath(path.display().to_string()));
         }
         Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(AppError::io(&path, error)),
     }
     Ok(path)
@@ -186,7 +188,7 @@ fn ensure_active_entry(path: &Path) -> Result<()> {
             return Err(AppError::UnsafePath(path.display().to_string()));
         }
         Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(AppError::io(path, error)),
     }
     Ok(())
@@ -238,7 +240,6 @@ pub(crate) fn resolve_active_path(
 /// Return a stable identity for duplicate/conflict checks. Existing parent
 /// symlinks are resolved and a non-existent filename is appended unchanged.
 pub(crate) fn path_identity(path: &Path) -> Result<PathBuf> {
-    let path = lexical_normalize(path)?;
     let parent = path
         .parent()
         .ok_or_else(|| AppError::UnsafePath(path.display().to_string()))?;
@@ -260,8 +261,10 @@ fn ensure_resolves_under(root: &Path, candidate: &Path) -> Result<()> {
 /// Canonicalize the longest existing prefix, then append the missing suffix.
 /// Unlike a simple `canonicalize(parent)`, this also spots symlinks above a
 /// path whose immediate parent has not been created yet.
-fn resolve_existing(path: &Path) -> Result<PathBuf> {
-    let mut current = lexical_normalize(path)?;
+pub(crate) fn resolve_existing(path: &Path) -> Result<PathBuf> {
+    // Resolve existing symlinks before interpreting `..`: lexically removing
+    // it first changes the meaning of paths such as `alias/../profile`.
+    let mut current = path.to_path_buf();
     let mut missing: Vec<OsString> = Vec::new();
     loop {
         match fs::symlink_metadata(&current) {
@@ -272,7 +275,7 @@ fn resolve_existing(path: &Path) -> Result<PathBuf> {
                 }
                 return lexical_normalize(&resolved);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let component = current
                     .file_name()
                     .ok_or_else(|| AppError::UnsafePath(path.display().to_string()))?;
@@ -315,6 +318,31 @@ fn has_windows_prefix(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn entry_identity_normalizes_parents_without_requiring_the_leaf() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("active")).unwrap();
+        fs::create_dir(directory.path().join("profiles")).unwrap();
+        let relative_target = directory
+            .path()
+            .join("active/../profiles/missing/config.toml");
+        let expected = fs::canonicalize(directory.path())
+            .unwrap()
+            .join("profiles/missing/config.toml");
+        assert_eq!(path_identity(&relative_target).unwrap(), expected);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn entry_identity_matches_normal_and_verbatim_windows_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let canonical = fs::canonicalize(directory.path()).unwrap();
+        assert_eq!(
+            path_identity(&directory.path().join("config.toml")).unwrap(),
+            path_identity(&canonical.join("config.toml")).unwrap()
+        );
+    }
 
     #[test]
     fn single_components_reject_traversal_and_platform_separators() {

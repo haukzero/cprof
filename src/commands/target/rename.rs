@@ -1,12 +1,10 @@
 use std::fs;
 
-use crate::activation;
 use crate::config;
 use crate::error::{AppError, IoContext, Result};
-use crate::profile;
-use crate::prompt;
-use crate::style;
+use crate::profile::{self, activation, storage};
 use crate::targets::TargetSpec;
+use crate::ui::{prompt, style};
 
 pub fn run(target: &TargetSpec, old_name: Option<String>, new_name: Option<String>) -> Result<()> {
     let (old_name, new_name) = match (old_name, new_name) {
@@ -17,7 +15,7 @@ pub fn run(target: &TargetSpec, old_name: Option<String>, new_name: Option<Strin
         ),
     };
 
-    profile::require_exists(target, &old_name)?;
+    storage::require_exists(target, &old_name)?;
     profile::validate_name(&new_name)?;
     let new_dir = config::profile_dir(target, &new_name)?;
     if new_dir.exists() {
@@ -29,14 +27,12 @@ pub fn run(target: &TargetSpec, old_name: Option<String>, new_name: Option<Strin
 
     fs::rename(&old_dir, &new_dir).with_path(&old_dir)?;
     if was_active && let Err(error) = activation::switch(target, &new_name, false) {
+        // The links already refer to new_dir when only backup cleanup failed.
+        if matches!(error, AppError::TransactionCleanupFailed(_)) {
+            return Err(error);
+        }
         let rollback = fs::rename(&new_dir, &old_dir).with_path(&new_dir);
-        return Err(match rollback {
-            Ok(()) => error,
-            Err(rollback_error) => AppError::Other(format!(
-                "Failed to rename profile '{}': {error}; rollback failed: {rollback_error}",
-                old_name
-            )),
-        });
+        return Err(error.with_recovery(rollback.err()));
     }
 
     style::success(format!("Renamed profile '{old_name}' to '{new_name}'"));

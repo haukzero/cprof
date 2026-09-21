@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use crate::error::{AppError, Result};
-use crate::fs_util;
+use crate::filesystem;
 use crate::package;
-use crate::profile;
+use crate::profile::storage;
 use crate::targets::{TargetRepository, TargetSpec};
 
 pub fn run(targets: &TargetRepository, target: &TargetSpec, save: Option<String>) -> Result<()> {
@@ -15,13 +15,13 @@ pub fn run(targets: &TargetRepository, target: &TargetSpec, save: Option<String>
 }
 
 pub(crate) fn collect_target(target: &TargetSpec) -> Result<Option<package::TargetPackage>> {
-    let names = profile::names(target)?;
+    let names = storage::names(target)?;
     if names.is_empty() {
         return Ok(None);
     }
     let mut entries = Vec::with_capacity(names.len());
     for name in names {
-        let resources = profile::read(target, &name)?;
+        let resources = storage::read(target, &name)?;
         entries.push(package::PackageProfile::new(name, resources));
     }
     Ok(Some(package::TargetPackage::new(
@@ -36,7 +36,7 @@ pub(crate) fn write_package(
     packages: &[package::TargetPackage],
 ) -> Result<()> {
     let data = package::encode_with_repository(targets, packages)?;
-    fs_util::atomic_write(output, &data)?;
+    filesystem::atomic_write(output, &data)?;
     let profile_count = packages
         .iter()
         .map(|package| package.profiles.len())

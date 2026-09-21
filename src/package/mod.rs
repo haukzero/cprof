@@ -3,10 +3,12 @@ mod manifest;
 mod profiles;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::error::{AppError, Result};
 use crate::profile::ProfileResource;
-use crate::targets::{self, ExternalTargetConfig, TargetRepository};
+use crate::targets::external::{self, ExternalTargetConfig};
+use crate::targets::{self, TargetRepository};
 
 pub(crate) const DEFAULT_FILE_NAME: &str = "cprof.pkg";
 
@@ -114,14 +116,14 @@ pub(crate) fn decode_with_repository(
     let mut packages = Vec::with_capacity(manifest.targets.len());
     for (target_index, manifest_target) in manifest.targets.iter().enumerate() {
         let target = if let Some(config) = &manifest_target.target_config {
-            let target = targets::spec_from_external_config(config)?;
+            let target = external::spec_from_external_config(config)?;
             if target.id != manifest_target.target {
                 return Err(AppError::InvalidPackage(format!(
                     "Target configuration id '{}' does not match target '{}'",
                     target.id, manifest_target.target
                 )));
             }
-            std::sync::Arc::new(target)
+            Arc::new(target)
         } else {
             targets.get(&manifest_target.target)?
         };
@@ -144,7 +146,7 @@ pub(crate) fn decode_with_repository(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::targets::ExternalResourceConfig;
+    use crate::targets::external::ExternalResourceConfig;
 
     #[test]
     fn decode_uses_embedded_external_target_definition() {

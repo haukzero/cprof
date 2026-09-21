@@ -1,14 +1,10 @@
-pub mod activation;
 pub mod cli;
 pub mod commands;
 pub mod config;
-pub mod editor;
 pub mod elevate;
 pub mod error;
-mod fs_util;
+mod filesystem;
 pub mod package;
-mod paths;
 pub mod profile;
-pub mod prompt;
-pub mod style;
 pub mod targets;
+pub mod ui;

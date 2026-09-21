@@ -1,12 +1,13 @@
-use crate::activation;
+use std::fs;
+
+use crate::config;
 use crate::error::{IoContext, Result};
-use crate::profile;
-use crate::prompt;
-use crate::style;
+use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
+use crate::ui::{prompt, style};
 
 pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
-    let profiles = profile::names(target)?;
+    let profiles = storage::names(target)?;
     let active = activation::active_name(target)?;
     if profiles.is_empty() {
         println!("No profiles to clean.");
@@ -31,9 +32,9 @@ pub fn run(target: &TargetSpec, force: bool) -> Result<()> {
     for name in &profiles {
         let _ = activation::remove_profile_links(target, name)?;
     }
-    let dir = crate::config::profiles_dir(target)?;
+    let dir = config::profiles_dir(target)?;
     if dir.exists() {
-        std::fs::remove_dir_all(&dir).with_path(&dir)?;
+        fs::remove_dir_all(&dir).with_path(&dir)?;
     }
     style::success(format!("Cleaned {} profile(s)", profiles.len()));
     Ok(())

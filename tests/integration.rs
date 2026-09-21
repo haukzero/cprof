@@ -1,27 +1,47 @@
+use std::env;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_file as symlink;
 use std::path::PathBuf;
+use std::process;
 use std::sync::{Arc, Barrier, OnceLock};
+use std::thread;
 
 use clap::Parser;
-use cprof::activation;
 use cprof::cli::{TargetCli, TargetCommand};
 use cprof::config;
+use cprof::elevate;
+use cprof::error::AppError;
 use cprof::package;
-use cprof::profile;
+use cprof::profile::{activation, storage};
 use cprof::targets;
 use serial_test::serial;
 
 fn unique_name(suffix: &str) -> String {
-    format!("test_{}_{}", std::process::id(), suffix)
+    format!("test_{}_{}", process::id(), suffix)
 }
 
 fn test_home() -> &'static PathBuf {
     static HOME: OnceLock<PathBuf> = OnceLock::new();
     HOME.get_or_init(|| {
         let path = tempfile::tempdir().unwrap().keep();
-        // `dirs::home_dir` reads HOME on Unix.  The integration binary must
-        // never inspect the developer's real cprof configuration.
-        unsafe { std::env::set_var("HOME", &path) };
+        // The integration binary must never inspect real user configuration.
+        // dirs uses HOME on Unix, but Windows reads a system known folder.
+        #[cfg(unix)]
+        unsafe {
+            env::set_var("HOME", &path)
+        };
+        #[cfg(windows)]
+        assert!(
+            elevate::prepare_args(vec![
+                "--elevated-home".into(),
+                path.clone().into_os_string(),
+            ])
+            .unwrap()
+            .is_empty()
+        );
         path
     })
 }
@@ -47,28 +67,19 @@ fn target(id: &str) -> &'static targets::TargetSpec {
 fn symlink_creation_available() -> bool {
     static AVAILABLE: OnceLock<bool> = OnceLock::new();
     *AVAILABLE.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("cprof-symlink-test-{}", std::process::id()));
+        let path = env::temp_dir().join(format!("cprof-symlink-test-{}", process::id()));
         let source = path.join("source");
         let link = path.join("link");
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         fs::write(&source, b"test").unwrap();
 
-        let result = {
-            #[cfg(unix)]
-            {
-                std::os::unix::fs::symlink(&source, &link)
-            }
-            #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_file(&source, &link)
-            }
-        };
+        let result = symlink(&source, &link);
         let available = match result {
             Ok(()) => true,
             Err(error) => {
-                let app_error = cprof::error::AppError::Io(error);
-                if cprof::elevate::is_privilege_error(&app_error) {
+                let app_error = AppError::Io(error);
+                if elevate::is_privilege_error(&app_error) {
                     false
                 } else {
                     panic!("failed to probe symlink creation: {app_error}");
@@ -82,7 +93,7 @@ fn symlink_creation_available() -> bool {
 
 fn cleanup(target: &'static targets::TargetSpec, name: &str) {
     let _ = activation::remove_profile_links(target, name);
-    let _ = profile::delete(target, name);
+    let _ = storage::delete(target, name);
 }
 
 struct LinkBackup {
@@ -116,10 +127,7 @@ impl Drop for LinkBackup {
         for (path, original) in &self.links {
             let _ = fs::remove_file(path);
             if let Some(target) = original {
-                #[cfg(unix)]
-                let _ = std::os::unix::fs::symlink(target, path);
-                #[cfg(windows)]
-                let _ = std::os::windows::fs::symlink_file(target, path);
+                let _ = symlink(target, path);
             }
         }
     }
@@ -134,8 +142,8 @@ fn claude_profile_lifecycle() {
     let target = claude();
     let _links = LinkBackup::new(target);
     let name = unique_name("claude_lifecycle");
-    profile::create(target, &name, None).unwrap();
-    assert!(profile::is_complete(target, &name).unwrap());
+    storage::create(target, &name, None).unwrap();
+    assert!(storage::is_complete(target, &name).unwrap());
     assert!(
         config::profile_resource(target, &name, &target.resources[0])
             .unwrap()
@@ -150,8 +158,8 @@ fn claude_profile_lifecycle() {
     );
     assert!(activation::switch(target, &name, false).unwrap());
     activation::remove_profile_links(target, &name).unwrap();
-    profile::delete(target, &name).unwrap();
-    assert!(!profile::exists(target, &name).unwrap());
+    storage::delete(target, &name).unwrap();
+    assert!(!storage::exists(target, &name).unwrap());
 }
 
 #[test]
@@ -163,8 +171,8 @@ fn codex_profile_has_two_resources_and_switches_together() {
     let target = codex();
     let _links = LinkBackup::new(target);
     let name = unique_name("codex");
-    profile::create(target, &name, None).unwrap();
-    let resources = profile::read(target, &name).unwrap();
+    storage::create(target, &name, None).unwrap();
+    let resources = storage::read(target, &name).unwrap();
     assert_eq!(resources.len(), 2);
     assert_eq!(resources[0].spec.key, "config");
     assert_eq!(resources[1].spec.key, "auth");
@@ -192,8 +200,8 @@ fn codex_reports_partial_and_mixed_links() {
     let _links = LinkBackup::new(target);
     let first = unique_name("first");
     let second = unique_name("second");
-    profile::create(target, &first, None).unwrap();
-    profile::create(target, &second, None).unwrap();
+    storage::create(target, &first, None).unwrap();
+    storage::create(target, &second, None).unwrap();
     activation::switch(target, &first, true).unwrap();
 
     let auth_link = config::active_resource(target, &target.resources[1]).unwrap();
@@ -207,14 +215,7 @@ fn codex_reports_partial_and_mixed_links() {
     let config_link = config::active_resource(target, &target.resources[0]).unwrap();
     let auth_link = config::active_resource(target, &target.resources[1]).unwrap();
     fs::remove_file(&auth_link).unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(
-        config::profile_resource(target, &first, &target.resources[1]).unwrap(),
-        &auth_link,
-    )
-    .unwrap();
-    #[cfg(windows)]
-    std::os::windows::fs::symlink_file(
+    symlink(
         config::profile_resource(target, &first, &target.resources[1]).unwrap(),
         &auth_link,
     )
@@ -232,10 +233,10 @@ fn codex_reports_partial_and_mixed_links() {
 #[test]
 fn profile_name_validation() {
     let target = claude();
-    assert!(profile::create(target, "../escape", None).is_err());
-    assert!(profile::create(target, "", None).is_err());
-    assert!(profile::create(target, "literal*star", None).is_err());
-    assert!(profile::create(target, "literal?mark", None).is_err());
+    assert!(storage::create(target, "../escape", None).is_err());
+    assert!(storage::create(target, "", None).is_err());
+    assert!(storage::create(target, "literal*star", None).is_err());
+    assert!(storage::create(target, "literal?mark", None).is_err());
 }
 
 #[test]
@@ -245,17 +246,17 @@ fn profile_patterns_resolve_names_without_duplicates() {
     let prefix = unique_name("pattern");
     let first = format!("{prefix}_first");
     let second = format!("{prefix}_second");
-    profile::create(target, &first, None).unwrap();
-    profile::create(target, &second, None).unwrap();
+    storage::create(target, &first, None).unwrap();
+    storage::create(target, &second, None).unwrap();
 
     let patterns = vec![format!("{prefix}_*"), first.clone()];
     assert_eq!(
-        profile::resolve_names(target, &patterns).unwrap(),
+        storage::resolve_names(target, &patterns).unwrap(),
         vec![first.clone(), second.clone()]
     );
     assert!(matches!(
-        profile::resolve_names(target, &["missing_*".to_string()]),
-        Err(cprof::error::AppError::NoProfilesMatched(pattern)) if pattern == "missing_*"
+        storage::resolve_names(target, &["missing_*".to_string()]),
+        Err(AppError::NoProfilesMatched(pattern)) if pattern == "missing_*"
     ));
 
     cleanup(target, &first);
@@ -268,11 +269,11 @@ fn copied_profile_preserves_resources() {
     let target = codex();
     let source = unique_name("copy_source");
     let destination = unique_name("copy_destination");
-    profile::create(target, &source, None).unwrap();
+    storage::create(target, &source, None).unwrap();
     let config_path = config::profile_resource(target, &source, &target.resources[0]).unwrap();
     fs::write(&config_path, "model = \"gpt-5\"\nsource=\"test_source\"\n").unwrap();
 
-    profile::create(target, &destination, Some(&source)).unwrap();
+    storage::create(target, &destination, Some(&source)).unwrap();
 
     for resource in &target.resources {
         let source_path = config::profile_resource(target, &source, resource).unwrap();
@@ -292,13 +293,13 @@ fn copied_profile_can_start_incomplete() {
     let target = codex();
     let source = unique_name("incomplete_copy_source");
     let destination = unique_name("incomplete_copy_destination");
-    profile::create(target, &source, None).unwrap();
+    storage::create(target, &source, None).unwrap();
     let missing_resource = config::profile_resource(target, &source, &target.resources[1]).unwrap();
     fs::remove_file(missing_resource).unwrap();
 
-    profile::create(target, &destination, Some(&source)).unwrap();
+    storage::create(target, &destination, Some(&source)).unwrap();
 
-    assert!(!profile::is_complete(target, &destination).unwrap());
+    assert!(!storage::is_complete(target, &destination).unwrap());
     cleanup(target, &source);
     cleanup(target, &destination);
 }
@@ -308,10 +309,10 @@ fn copy_from_requires_an_existing_profile() {
     let target = claude();
     let destination = unique_name("copy_missing_destination");
     let missing = unique_name("copy_missing_source");
-    let error = profile::create(target, &destination, Some(&missing)).unwrap_err();
+    let error = storage::create(target, &destination, Some(&missing)).unwrap_err();
 
-    assert!(matches!(error, cprof::error::AppError::ProfileNotFound(name) if name == missing));
-    assert!(!profile::exists(target, &destination).unwrap());
+    assert!(matches!(error, AppError::ProfileNotFound(name) if name == missing));
+    assert!(!storage::exists(target, &destination).unwrap());
 }
 
 #[test]
@@ -325,9 +326,9 @@ fn concurrent_profile_creation_has_a_single_winner() {
             .map(|_| {
                 let barrier = Arc::clone(&barrier);
                 let name = name.clone();
-                std::thread::spawn(move || {
+                thread::spawn(move || {
                     barrier.wait();
-                    profile::create(target, &name, None)
+                    storage::create(target, &name, None)
                 })
             })
             .collect::<Vec<_>>();
@@ -341,11 +342,11 @@ fn concurrent_profile_creation_has_a_single_winner() {
         assert_eq!(
             results
                 .iter()
-                .filter(|result| matches!(result, Err(cprof::error::AppError::ProfileExists(_))))
+                .filter(|result| matches!(result, Err(AppError::ProfileExists(_))))
                 .count(),
             1
         );
-        assert!(profile::is_complete(target, &name).unwrap());
+        assert!(storage::is_complete(target, &name).unwrap());
         cleanup(target, &name);
     }
 }
@@ -370,11 +371,11 @@ fn package_roundtrip_preserves_resources() {
     let target = codex();
     let first = unique_name("package_first");
     let second = unique_name("package_second");
-    profile::create(target, &first, None).unwrap();
-    profile::create(target, &second, None).unwrap();
+    storage::create(target, &first, None).unwrap();
+    storage::create(target, &second, None).unwrap();
     let entries = vec![
-        package::PackageProfile::new(first.clone(), profile::read(target, &first).unwrap()),
-        package::PackageProfile::new(second.clone(), profile::read(target, &second).unwrap()),
+        package::PackageProfile::new(first.clone(), storage::read(target, &first).unwrap()),
+        package::PackageProfile::new(second.clone(), storage::read(target, &second).unwrap()),
     ];
     let data = package::encode(&[package::TargetPackage::new("codex", entries)]).unwrap();
     let decoded = package::decode(&data).unwrap();
@@ -390,8 +391,8 @@ fn package_roundtrip_preserves_resources() {
 fn package_detects_corruption() {
     let target = claude();
     let name = unique_name("corrupt");
-    profile::create(target, &name, None).unwrap();
-    let entry = package::PackageProfile::new(name.clone(), profile::read(target, &name).unwrap());
+    storage::create(target, &name, None).unwrap();
+    let entry = package::PackageProfile::new(name.clone(), storage::read(target, &name).unwrap());
     let mut data = package::encode(&[package::TargetPackage::new("claude", vec![entry])]).unwrap();
     let last = data.len() - 1;
     data[last] ^= 1;
@@ -405,22 +406,22 @@ fn package_roundtrip_supports_all_targets() {
     let codex_target = codex();
     let claude_name = unique_name("package_claude");
     let codex_name = unique_name("package_codex");
-    profile::create(claude_target, &claude_name, None).unwrap();
-    profile::create(codex_target, &codex_name, None).unwrap();
+    storage::create(claude_target, &claude_name, None).unwrap();
+    storage::create(codex_target, &codex_name, None).unwrap();
 
     let package = package::encode(&[
         package::TargetPackage::new(
             "claude",
             vec![package::PackageProfile::new(
                 claude_name.clone(),
-                profile::read(claude_target, &claude_name).unwrap(),
+                storage::read(claude_target, &claude_name).unwrap(),
             )],
         ),
         package::TargetPackage::new(
             "codex",
             vec![package::PackageProfile::new(
                 codex_name.clone(),
-                profile::read(codex_target, &codex_name).unwrap(),
+                storage::read(codex_target, &codex_name).unwrap(),
             )],
         ),
     ])

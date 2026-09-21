@@ -1,15 +1,16 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::slice;
 use std::sync::Arc;
 
 use crate::error::{AppError, IoContext, Result};
-use crate::fs_util::PathTransaction;
+use crate::filesystem::transaction::PathTransaction;
 use crate::package;
-use crate::profile;
-use crate::prompt;
-use crate::style;
-use crate::targets::{self, ExternalTargetConfig, TargetRepository, TargetSpec};
+use crate::profile::{self, storage};
+use crate::targets::external::{self, ExternalTargetConfig};
+use crate::targets::{TargetRepository, TargetSpec};
+use crate::ui::{prompt, style};
 
 pub fn run(
     targets: &TargetRepository,
@@ -25,15 +26,11 @@ pub fn run(
             AppError::InvalidPackage(format!("Package does not contain target '{}'", target.id))
         })?;
     let (target_configs, configs_changed) =
-        merge_target_configs(targets, std::slice::from_ref(&package), force)?;
+        merge_target_configs(targets, slice::from_ref(&package), force)?;
     let target = resolve_target(targets, &package, &target_configs)?;
     let profiles = remap_profiles(&target, package.profiles)?;
     let plan = prepare_unpack(target, profiles, force)?;
-    commit_unpack(
-        std::slice::from_ref(&plan),
-        &target_configs,
-        configs_changed,
-    )?;
+    commit_unpack(slice::from_ref(&plan), &target_configs, configs_changed)?;
     plan.report();
     Ok(())
 }
@@ -52,7 +49,7 @@ struct PlannedProfile {
 impl UnpackPlan {
     pub(crate) fn stage(&self, transaction: &mut PathTransaction) -> Result<()> {
         for planned in &self.profiles {
-            profile::stage_validated_replace(
+            storage::stage_validated_replace(
                 transaction,
                 &self.target,
                 &planned.package.name,
@@ -87,7 +84,7 @@ pub(crate) fn prepare_unpack(
     let mut planned = Vec::with_capacity(profiles.len());
     let mut skipped = 0;
     for package_profile in profiles {
-        let exists = profile::exists(&target, &package_profile.name)?;
+        let exists = storage::exists(&target, &package_profile.name)?;
         if exists {
             style::warning(format!(
                 "Profile '{}' already exists - conflict!",
@@ -100,7 +97,7 @@ pub(crate) fn prepare_unpack(
                 continue;
             }
         }
-        profile::validate_replacement(
+        storage::validate_replacement(
             &target,
             &package_profile.name,
             &package_profile.resources,
@@ -130,7 +127,7 @@ pub(crate) fn commit_unpack(
         }
     }
     if configs_changed
-        && let Err(error) = targets::stage_external_configs(&mut transaction, target_configs)
+        && let Err(error) = external::stage_external_configs(&mut transaction, target_configs)
     {
         return Err(transaction.cancel(error));
     }
@@ -147,7 +144,7 @@ pub(crate) fn merge_target_configs(
         .filter_map(|package| package.target_config.clone())
         .collect::<Vec<_>>();
     let local = targets.external_configs().clone();
-    let merged = targets::merge_external_configs(local.clone(), &packaged, |prompt| {
+    let merged = external::merge_external_configs(local.clone(), &packaged, |prompt| {
         should_use_packaged(prompt, force)
     })?;
     let changed = merged != local;
@@ -161,31 +158,28 @@ pub(crate) fn read_package(
     let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     let path = Path::new(&path);
     if !path.exists() {
-        return Err(AppError::Other(format!(
-            "Package file '{}' not found",
-            path.display()
-        )));
+        return Err(AppError::PackageNotFound(path.to_path_buf()));
     }
     package::decode_with_repository(targets, &fs::read(path).with_path(path)?)
 }
 
 fn effective_target_from_config(
     package: &package::TargetPackage,
-    configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
+    configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<Arc<TargetSpec>> {
-    let config = targets::find_external_config(configs, &package.target).ok_or_else(|| {
+    let config = external::find_external_config(configs, &package.target).ok_or_else(|| {
         AppError::InvalidPackage(format!(
             "Merged configuration does not contain target '{}'",
             package.target
         ))
     })?;
-    Ok(Arc::new(targets::spec_from_external_config(config)?))
+    Ok(Arc::new(external::spec_from_external_config(config)?))
 }
 
 pub(crate) fn resolve_target(
     targets: &TargetRepository,
     package: &package::TargetPackage,
-    configs: &std::collections::BTreeMap<String, ExternalTargetConfig>,
+    configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<Arc<TargetSpec>> {
     if package.target_config.is_some() {
         effective_target_from_config(package, configs)
@@ -201,7 +195,7 @@ pub(crate) fn remap_profiles(
     profiles
         .into_iter()
         .map(|profile| {
-            let mut present = std::collections::HashSet::new();
+            let mut present = HashSet::new();
             let mut resources = profile
                 .resources
                 .into_iter()

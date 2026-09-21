@@ -1,3 +1,4 @@
+pub mod adopt;
 pub mod clean;
 pub mod create;
 pub mod dir;

@@ -1,10 +1,11 @@
+use std::env;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
 use crate::error::{AppError, IoContext, Result};
-use crate::fs_util::PathTransaction;
+use crate::filesystem::transaction::PathTransaction;
 
 pub struct EditSession {
     editor: String,
@@ -17,11 +18,10 @@ impl EditSession {
     pub fn new(editor: Option<String>, editor_args: Vec<String>) -> Result<Self> {
         let (editor, editor_args) = match editor {
             Some(editor) => (editor, editor_args),
-            None => match ["VISUAL", "EDITOR"].into_iter().find_map(|name| {
-                std::env::var(name)
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-            }) {
+            None => match ["VISUAL", "EDITOR"]
+                .into_iter()
+                .find_map(|name| env::var(name).ok().filter(|value| !value.trim().is_empty()))
+            {
                 Some(command) => {
                     let mut words = shell_words::split(&command)
                         .map_err(|error| AppError::InvalidEditorCommand(error.to_string()))?

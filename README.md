@@ -46,6 +46,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> num` | profile 总数及 incomplete 数量 |
 | `cprof <target> switch [name] [-f]` | 切换 profile |
 | `cprof <target> create [name] [-c profile] [--editor program] [--editor-arg arg]...` | 创建并编辑 profile, 可从已有 profile 复制 |
+| `cprof <target> adopt [name]` | 将当前未托管配置导入为新 profile 并激活 |
 | `cprof <target> edit [name] [--filename key] [--editor program] [--editor-arg arg]...` | 编辑 profile |
 | `cprof <target> remove [names...] [-f]` | 删除 profile, 名称支持 `*` 和 `?` 通配符; `-f` 允许删除当前激活项 |
 | `cprof <target> clean [-f]` | 清空所有 profile |
@@ -54,6 +55,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> unpack [--path path] [-f]` | 解包指定 target |
 
 - `create name` 默认从模板创建; 使用 `--copy-from profile` 或 `-c profile` 会先复制指定的已有 profile, 再进入编辑器. 省略 `create` 的名称时, 输入新名称后可在默认模板和已有 profile 间模糊选择来源. 
+- `adopt name` 支持普通文件和外部软链接, 如 `cprof codex adopt work`; 省略名称时交互输入新名称.
 - 其他省略 profile 名称的命令会进入模糊搜索选择. `--filename` 使用资源逻辑名称:
     - Claude 为 `settings`
     - Codex 为 `config` 或 `auth`. 

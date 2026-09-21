@@ -1,7 +1,7 @@
 use crate::commands::target;
 use crate::error::Result;
-use crate::style;
 use crate::targets::TargetRepository;
+use crate::ui::style;
 
 pub fn run(targets: &TargetRepository, path: Option<String>, force: bool) -> Result<()> {
     let packages = target::unpack::read_package(targets, path)?;

@@ -1,8 +1,8 @@
 use crate::error::Result;
-use crate::profile;
+use crate::profile::storage;
 use crate::targets::TargetSpec;
 
 pub fn run(target: &TargetSpec) -> Result<()> {
-    println!("{}", profile::counts(target)?);
+    println!("{}", storage::counts(target)?);
     Ok(())
 }

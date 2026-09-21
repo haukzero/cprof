@@ -1,19 +1,15 @@
 mod claude;
 mod codex;
-mod external;
+pub(crate) mod external;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use crate::config::paths;
 use crate::error::{AppError, Result};
-use crate::paths;
 
-pub(crate) use external::{
-    ExternalResourceConfig, ExternalTargetConfig, find_external_config, merge_external_configs,
-    read_external_configs, spec_from_external_config, stage_external_configs,
-    validate_external_config, validate_external_configs_content,
-};
+use external::ExternalTargetConfig;
 
 pub type Validator = fn(&[u8]) -> Result<()>;
 
@@ -85,7 +81,7 @@ pub struct TargetRepository {
 
 impl TargetRepository {
     pub fn load() -> Result<Self> {
-        let external_configs = read_external_configs()?;
+        let external_configs = external::read_external_configs()?;
         let mut targets = BUILTIN_TARGETS.iter().cloned().collect::<Vec<_>>();
         targets.extend(
             external_configs
@@ -129,11 +125,11 @@ pub(crate) fn is_builtin(target: &TargetSpec) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_builtin;
+    use super::{claude, codex, is_builtin};
 
     #[test]
     fn builtin_targets_are_identified() {
-        assert!(is_builtin(&super::claude::spec()));
-        assert!(is_builtin(&super::codex::spec()));
+        assert!(is_builtin(&claude::spec()));
+        assert!(is_builtin(&codex::spec()));
     }
 }

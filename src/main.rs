@@ -1,13 +1,17 @@
+use std::env;
 use std::ffi::OsString;
+use std::iter::once;
 use std::process::ExitCode;
 
 use clap::Parser;
+use clap::error::ErrorKind;
 
 use cprof::cli::{self, Cli, RootCommand, TargetCli, TargetCommand};
 use cprof::commands::{root, target};
-use cprof::error::AppError;
-use cprof::style;
+use cprof::elevate;
+use cprof::error::{self, AppError};
 use cprof::targets::TargetRepository;
+use cprof::ui::style;
 
 enum RunError {
     App(AppError),
@@ -30,7 +34,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(RunError::App(error)) => {
-            if !cprof::elevate::is_elevated_child() {
+            if !elevate::is_elevated_child() {
                 style::error(error);
             }
             ExitCode::FAILURE
@@ -47,7 +51,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), RunError> {
-    let args = std::env::args_os().skip(1).collect::<Vec<OsString>>();
+    let args = elevate::prepare_args(env::args_os().skip(1).collect())?;
     if cli::is_root_help_request(&args) {
         let targets = TargetRepository::load()?;
         let command_names = cli::command_names();
@@ -63,9 +67,8 @@ fn run() -> Result<(), RunError> {
         return Ok(());
     }
 
-    let command =
-        Cli::try_parse_from(std::iter::once(OsString::from("cprof")).chain(args))?.command;
-    match command {
+    let cli = Cli::try_parse_from(once(OsString::from("cprof")).chain(args))?;
+    match cli.command {
         RootCommand::Claude(args) => run_target_command("claude", args.command)?,
         RootCommand::Codex(args) => run_target_command("codex", args.command)?,
         RootCommand::Pack(args) => {
@@ -87,7 +90,7 @@ fn run() -> Result<(), RunError> {
         }
         RootCommand::External(args) => {
             let target_id = args.first().cloned().ok_or_else(|| {
-                cprof::error::AppError::Other("Missing target command".to_string())
+                clap::Error::raw(ErrorKind::MissingSubcommand, "Missing target command")
             })?;
             let targets = TargetRepository::load()?;
             targets.get(&target_id)?;
@@ -103,7 +106,7 @@ fn parse_target_command(
     args: impl IntoIterator<Item = String>,
 ) -> Result<TargetCommand, RunError> {
     let command_name = format!("cprof {target_id}");
-    match TargetCli::try_parse_from(std::iter::once(command_name).chain(args)) {
+    match TargetCli::try_parse_from(once(command_name).chain(args)) {
         Ok(cli) => Ok(cli.command),
         Err(error) => Err(error.into()),
     }
@@ -119,7 +122,7 @@ fn run_target_command_with_repository(
     targets: &TargetRepository,
     target_id: &str,
     command: TargetCommand,
-) -> cprof::error::Result<()> {
+) -> error::Result<()> {
     let target = targets.get(target_id)?;
     match command {
         TargetCommand::Dir => target::dir::run(&target),
@@ -131,6 +134,7 @@ fn run_target_command_with_repository(
             copy_from,
             editor,
         } => target::create::run(&target, name, copy_from, editor),
+        TargetCommand::Adopt { name } => target::adopt::run(&target, name),
         TargetCommand::Edit {
             name,
             filename,

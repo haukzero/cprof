@@ -1,9 +1,7 @@
-use crate::activation;
 use crate::error::Result;
-use crate::profile;
-use crate::prompt;
-use crate::style;
+use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
+use crate::ui::{prompt, style};
 
 pub fn run(target: &TargetSpec, names: Vec<String>, force: bool) -> Result<()> {
     let names = if names.is_empty() {
@@ -13,11 +11,11 @@ pub fn run(target: &TargetSpec, names: Vec<String>, force: bool) -> Result<()> {
             "Profile name to remove (type to search)",
         )?]
     } else {
-        profile::resolve_names(target, &names)?
+        storage::resolve_names(target, &names)?
     };
 
     for name in &names {
-        profile::require_exists(target, name)?;
+        storage::require_exists(target, name)?;
     }
 
     let active = activation::active_name(target)?;
@@ -44,7 +42,7 @@ pub fn run(target: &TargetSpec, names: Vec<String>, force: bool) -> Result<()> {
             continue;
         }
         activation::remove_profile_links(target, &name)?;
-        profile::delete(target, &name)?;
+        storage::delete(target, &name)?;
         println!(
             "Removed profile '{}'{}",
             name,

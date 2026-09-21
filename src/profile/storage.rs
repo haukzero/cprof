@@ -1,47 +1,17 @@
+//! Query, validate, and persist stored profiles and their resources.
+
 use std::collections::HashSet;
-use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexSet;
-use serde::Serialize;
 
-use crate::config;
+use crate::config::{self, paths};
 use crate::error::{AppError, IoContext, Result};
-use crate::fs_util;
-use crate::paths;
+use crate::filesystem::{self, transaction::PathTransaction};
 use crate::targets::{ResourceSpec, TargetSpec};
 
-#[derive(Debug, Clone)]
-pub struct ProfileInfo {
-    pub name: String,
-    pub complete: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ProfileCounts {
-    pub total: usize,
-    pub incomplete: usize,
-}
-
-impl fmt::Display for ProfileCounts {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{} ({} incomplete)", self.total, self.incomplete)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ProfileResource {
-    pub spec: ResourceSpec,
-    pub content: Vec<u8>,
-}
-
-pub fn validate_name(name: &str) -> Result<()> {
-    if name.contains(['*', '?']) || paths::validate_safe_component(name).is_err() {
-        return Err(AppError::InvalidProfileName(name.to_string()));
-    }
-    Ok(())
-}
+use super::{ProfileCounts, ProfileInfo, ProfileResource, validate_name};
 
 pub fn exists(target: &TargetSpec, name: &str) -> Result<bool> {
     validate_name(name)?;
@@ -204,14 +174,14 @@ pub fn create(target: &TargetSpec, name: &str, copy_from: Option<&str>) -> Resul
         None => None,
     };
 
-    let mut transaction = fs_util::PathTransaction::new();
+    let mut transaction = PathTransaction::new();
     let staging = transaction.stage_directory(&dir, false)?;
     let result = target.resources.iter().try_for_each(|resource| {
         let destination = resource_path_in(&staging, resource)?;
         if let Some(source_dir) = &source_dir {
             let source_path = resource_path_in(source_dir, resource)?;
             if source_path.exists() {
-                fs_util::write_file(
+                filesystem::write_file(
                     &destination,
                     &fs::read(&source_path).with_path(&source_path)?,
                 )?;
@@ -248,15 +218,15 @@ pub fn replace(
     resources: &[ProfileResource],
     overwrite: bool,
 ) -> Result<()> {
-    let mut transaction = fs_util::PathTransaction::new();
+    let mut transaction = PathTransaction::new();
     if let Err(error) = stage_replace(&mut transaction, target, name, resources, overwrite) {
         return Err(transaction.cancel(error));
     }
     transaction.commit()
 }
 
-pub(crate) fn stage_replace(
-    transaction: &mut fs_util::PathTransaction,
+fn stage_replace(
+    transaction: &mut PathTransaction,
     target: &TargetSpec,
     name: &str,
     resources: &[ProfileResource],
@@ -281,7 +251,7 @@ pub(crate) fn validate_replacement(
 }
 
 pub(crate) fn stage_validated_replace(
-    transaction: &mut fs_util::PathTransaction,
+    transaction: &mut PathTransaction,
     target: &TargetSpec,
     name: &str,
     resources: &[ProfileResource],
@@ -330,7 +300,7 @@ pub fn validate_resource_file(path: &Path, resource: &ResourceSpec) -> Result<()
 fn write_resources(dir: &Path, resources: &[ProfileResource]) -> Result<()> {
     for resource in resources {
         let path = resource_path_in(dir, &resource.spec)?;
-        fs_util::write_file(&path, &resource.content)?;
+        filesystem::write_file(&path, &resource.content)?;
     }
     Ok(())
 }
@@ -368,32 +338,12 @@ fn validate_resources(
 
 fn write_resource(path: &Path, spec: &ResourceSpec, content: &[u8]) -> Result<()> {
     (spec.validate)(content)?;
-    fs_util::write_file(path, content)
+    filesystem::write_file(path, content)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ProfileCounts, matches_pattern};
-
-    #[test]
-    fn profile_counts_display_total_and_incomplete_counts() {
-        assert_eq!(
-            ProfileCounts {
-                total: 3,
-                incomplete: 1,
-            }
-            .to_string(),
-            "3 (1 incomplete)"
-        );
-        assert_eq!(
-            ProfileCounts {
-                total: 0,
-                incomplete: 0,
-            }
-            .to_string(),
-            "0 (0 incomplete)"
-        );
-    }
+    use super::matches_pattern;
 
     #[test]
     fn wildcard_patterns_match_expected_names() {

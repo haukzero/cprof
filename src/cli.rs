@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::sync::OnceLock;
 
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, Command, CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -29,13 +29,11 @@ pub fn command_names() -> &'static [String] {
     })
 }
 
-pub fn command_with_extra_targets(
-    extra_target_ids: impl IntoIterator<Item = String>,
-) -> clap::Command {
+pub fn command_with_extra_targets(extra_target_ids: impl IntoIterator<Item = String>) -> Command {
     let mut command = Cli::command();
     for target_id in extra_target_ids {
-        command = command
-            .subcommand(clap::Command::new(target_id).about("Manage profiles for this target"));
+        command =
+            command.subcommand(Command::new(target_id).about("Manage profiles for this target"));
     }
     command
 }
@@ -168,6 +166,11 @@ pub enum TargetCommand {
         copy_from: Option<String>,
         #[command(flatten)]
         editor: EditorOptions,
+    },
+    /// Adopt the current unmanaged configuration as a new, active profile
+    Adopt {
+        /// New profile name (prompts if omitted)
+        name: Option<String>,
     },
     /// Edit an existing profile
     Edit {

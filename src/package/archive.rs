@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read, Seek, Write};
 
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
@@ -34,9 +34,7 @@ pub(super) fn encode(manifest: &[u8], payloads: Vec<(String, Vec<u8>)>) -> Resul
     Ok(frame(&archive))
 }
 
-pub(super) fn read_manifest<R: Read + std::io::Seek>(
-    archive: &mut ZipArchive<R>,
-) -> Result<Vec<u8>> {
+pub(super) fn read_manifest<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<Vec<u8>> {
     let mut file = archive.by_name("manifest.bin").map_err(invalid_archive)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;

@@ -3,6 +3,8 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+#[path = "cli/adopt.rs"]
+mod adopt;
 #[path = "cli/paths.rs"]
 mod paths;
 mod support;

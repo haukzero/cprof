@@ -1,11 +1,14 @@
-use super::{ResourceSpec, TargetSpec};
+use std::str;
+
 use crate::error::{AppError, Result};
+
+use super::{ResourceSpec, TargetSpec};
 
 const CONFIG_TEMPLATE: &[u8] = b"# Codex configuration\n";
 const AUTH_TEMPLATE: &[u8] = b"{}\n";
 
 fn validate_toml(content: &[u8]) -> Result<()> {
-    let text = std::str::from_utf8(content)
+    let text = str::from_utf8(content)
         .map_err(|_| AppError::InvalidResource("config.toml is not valid UTF-8".to_string()))?;
     toml::from_str::<toml::Value>(text)
         .map(|_| ())
