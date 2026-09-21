@@ -92,6 +92,36 @@ fn forced_remove_deletes_an_active_profile_and_its_link() {
 }
 
 #[test]
+fn rename_updates_an_active_profile_and_its_links() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "old");
+
+    home.succeeds(&["claude", "rename", "old", "new"]);
+
+    assert!(!home.path.join(".cprof/profiles/claude/old").exists());
+    assert!(home.path.join(".cprof/profiles/claude/new").is_dir());
+    let link = home.path.join(".claude/settings.json");
+    assert_eq!(
+        fs::read_link(link).unwrap(),
+        home.path.join(".cprof/profiles/claude/new/settings.json")
+    );
+    assert!(home.succeeds(&["claude", "list"]).contains("new (active)"));
+}
+
+#[test]
+fn rename_conflicts_are_reported_before_changing_profiles() {
+    let home = TestHome::new();
+    create_claude_profile(&home, "old");
+    create_claude_profile(&home, "existing");
+
+    let stderr = home.fails(&["claude", "rename", "old", "existing"]);
+
+    assert!(stderr.contains("already exists"), "{stderr}");
+    assert!(home.path.join(".cprof/profiles/claude/old").is_dir());
+    assert!(home.path.join(".cprof/profiles/claude/existing").is_dir());
+}
+
+#[test]
 fn non_interactive_remove_without_a_conflict_still_succeeds() {
     let home = TestHome::new();
     create_claude_profile(&home, "active");

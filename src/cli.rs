@@ -187,6 +187,13 @@ pub enum TargetCommand {
         #[arg(short, long)]
         force: bool,
     },
+    /// Rename a profile
+    Rename {
+        /// Old profile name (prompts if omitted)
+        old_name: Option<String>,
+        /// New profile name (prompts if omitted)
+        new_name: Option<String>,
+    },
     /// Switch to a profile
     Switch {
         /// Profile name (prompts if omitted)

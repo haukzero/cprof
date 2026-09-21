@@ -6,6 +6,7 @@ pub mod list;
 pub mod num;
 pub mod pack;
 pub mod remove;
+pub mod rename;
 pub mod switch;
 pub mod unpack;
 pub mod where_;
