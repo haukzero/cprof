@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 use crate::profile;
-use crate::targets::{EXTRA_TARGET_FILE, ResourceSpec, TargetSpec};
+use crate::targets::{ResourceSpec, TargetSpec};
 
 pub(crate) mod home;
 pub(crate) mod paths;
@@ -18,7 +18,7 @@ pub fn profiles_root() -> Result<PathBuf> {
 }
 
 pub(crate) fn extra_target_file() -> Result<PathBuf> {
-    paths::join_storage_under(&repository_dir()?, Path::new(EXTRA_TARGET_FILE))
+    paths::join_storage_under(&repository_dir()?, Path::new("extra-target.toml"))
 }
 
 pub fn profiles_dir(target: &TargetSpec) -> Result<PathBuf> {

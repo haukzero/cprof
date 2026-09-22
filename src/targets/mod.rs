@@ -12,8 +12,6 @@ use crate::format::Format;
 
 use external::ExternalTargetConfig;
 
-pub(crate) const EXTRA_TARGET_FILE: &str = "extra-target.toml";
-
 #[derive(Debug, Clone)]
 pub struct ResourceSpec {
     pub key: String,

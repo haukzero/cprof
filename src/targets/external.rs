@@ -12,7 +12,7 @@ use crate::filesystem::transaction::PathTransaction;
 use crate::format::Format;
 use crate::ui::style;
 
-use super::{BUILTIN_TARGETS, EXTRA_TARGET_FILE, ResourceSpec, TargetSpec};
+use super::{BUILTIN_TARGETS, ResourceSpec, TargetSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalTargetConfig {
@@ -255,7 +255,7 @@ pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetC
 }
 
 pub(crate) fn validate_external_configs_content(content: &[u8]) -> Result<()> {
-    parse_external_configs(content, Path::new(EXTRA_TARGET_FILE)).map(|_| ())
+    parse_external_configs(content, &config::extra_target_file()?).map(|_| ())
 }
 
 fn parse_external_configs(
