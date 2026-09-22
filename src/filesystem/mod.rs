@@ -12,8 +12,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{AppError, IoContext, PathError, Result};
 
+mod edit;
+mod lock;
 mod platform;
 pub(crate) mod transaction;
+
+pub(crate) use edit::{create_edit_file, edit_draft_path, has_edit_draft};
+pub(crate) use lock::EditLock;
 
 use platform::sync_path;
 use transaction::PathTransaction;

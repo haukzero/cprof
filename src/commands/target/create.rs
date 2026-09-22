@@ -1,6 +1,7 @@
 use crate::cli::EditorOptions;
+use crate::config;
 use crate::elevate;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use crate::profile::activation::{self, Status};
 use crate::profile::storage;
 use crate::targets::TargetSpec;
@@ -23,18 +24,28 @@ pub fn run(
             (name, copy_from)
         }
     };
-    storage::create(target, &name, copy_from.as_deref())?;
+    // Keep the lock across profile creation so an editor cannot observe a
+    // newly-created profile before its initial transaction is ready.
+    let mut session = EditSession::new(
+        editor.editor,
+        editor.editor_args,
+        &config::profile_dir(target, &name)?,
+    )?;
+    let recovering = storage::has_edit_drafts(target, &name)?;
+    if !recovering {
+        storage::create(target, &name, copy_from.as_deref())?;
+    }
     let result = (|| {
-        let mut session = EditSession::new(editor.editor, editor.editor_args)?;
         for resource in &target.resources {
             let path = storage::resource_path(target, &name, resource)?;
             session.edit(&path, |bytes| resource.validate(bytes))?;
         }
-        session.commit()?;
-        Ok::<(), AppError>(())
+        session.commit()
     })();
     if let Err(error) = result {
-        let _ = storage::delete(target, &name);
+        if !recovering {
+            let _ = storage::delete(target, &name);
+        }
         return Err(error);
     }
 

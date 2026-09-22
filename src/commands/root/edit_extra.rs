@@ -19,7 +19,7 @@ const DEFAULT_TEMPLATE: &[u8] = br#"# Example for extra targets
 
 pub fn run(editor: EditorOptions) -> Result<()> {
     let path = config::extra_target_file()?;
-    let mut session = EditSession::new(editor.editor, editor.editor_args)?;
+    let mut session = EditSession::new(editor.editor, editor.editor_args, &path)?;
     session.edit_or_create(
         &path,
         DEFAULT_TEMPLATE,

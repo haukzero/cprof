@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::support::{AUTH, CONFIG, TestHome, assert_failure, can_symlink, unmanaged_codex};
+use crate::support::{AUTH, CONFIG, TestHome, can_symlink, unmanaged_codex};
 
 #[test]
 fn profile_counts_include_incomplete_profiles() {
@@ -198,13 +198,20 @@ fn concurrent_profile_creation_has_a_single_winner() {
             1,
             "{results:?}"
         );
-        assert_failure(
-            results
-                .iter()
-                .find(|output| !output.status.success())
-                .unwrap(),
-            "already exists",
-        );
+        let failure = results
+            .iter()
+            .find(|output| !output.status.success())
+            .unwrap();
+        assert!(!failure.status.success(), "{results:?}");
+        #[cfg(unix)]
+        {
+            let stderr = String::from_utf8_lossy(&failure.stderr);
+            assert!(
+                stderr.contains("already exists")
+                    || stderr.contains("another cprof edit session is active"),
+                "unexpected concurrent-create error: {stderr}"
+            );
+        }
         let profile = home.path.join(".cprof/profiles/codex").join(&name);
         assert_eq!(
             fs::read_to_string(profile.join("config.toml")).unwrap(),

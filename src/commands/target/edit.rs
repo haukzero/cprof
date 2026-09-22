@@ -1,4 +1,5 @@
 use crate::cli::EditorOptions;
+use crate::config;
 use crate::error::{ProfileError, Result};
 use crate::profile::storage;
 use crate::targets::{ResourceSpec, TargetSpec};
@@ -16,7 +17,11 @@ pub fn run(
         Some(filename) => vec![target.resource(&filename)?],
         None => target.resources.iter().collect(),
     };
-    let mut session = EditSession::new(editor.editor, editor.editor_args)?;
+    let mut session = EditSession::new(
+        editor.editor,
+        editor.editor_args,
+        &config::profile_dir(target, &name)?,
+    )?;
     for resource in resources {
         let path = storage::resource_path(target, &name, resource)?;
         if !path.exists() {

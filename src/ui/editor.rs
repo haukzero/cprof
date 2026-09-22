@@ -5,17 +5,19 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::error::{AppError, EditorError, IoContext, Result};
+use crate::filesystem::EditLock;
 use crate::filesystem::transaction::PathTransaction;
 
 pub struct EditSession {
     editor: String,
     editor_args: Vec<String>,
     transaction: Option<PathTransaction>,
+    _lock: EditLock,
     changed: bool,
 }
 
 impl EditSession {
-    pub fn new(editor: Option<String>, editor_args: Vec<String>) -> Result<Self> {
+    pub fn new(editor: Option<String>, editor_args: Vec<String>, scope: &Path) -> Result<Self> {
         let (editor, editor_args) = match editor {
             Some(editor) => (editor, editor_args),
             None => match ["VISUAL", "EDITOR"]
@@ -37,9 +39,17 @@ impl EditSession {
                 ),
             },
         };
+        let lock_path = EditLock::path(scope);
+        let lock = EditLock::try_acquire(scope)
+            .map_err(|source| AppError::io(&lock_path, source))?
+            .ok_or_else(|| EditorError::Locked {
+                scope: scope.to_path_buf(),
+                lock: lock_path,
+            })?;
         Ok(Self {
             editor,
             editor_args,
+            _lock: lock,
             transaction: Some(PathTransaction::new()),
             changed: false,
         })
@@ -102,7 +112,7 @@ impl EditSession {
             .transaction
             .as_mut()
             .expect("edit transaction is active")
-            .stage_file(path, "edit", before, replace)?;
+            .stage_edit_file(path, before, replace)?;
         let status = Command::new(&self.editor)
             .args(&self.editor_args)
             .arg(&draft)

@@ -131,6 +131,36 @@ fn invalid_extra_target_edits_preserve_existing_or_absent_config() {
 }
 
 #[test]
+fn profile_create_resumes_an_interrupted_draft() {
+    let home = TestHome::new();
+    let profile = home.path.join(".cprof/profiles/codex/recovered");
+    fs::create_dir_all(&profile).unwrap();
+    fs::write(profile.join("config.toml"), CONFIG).unwrap();
+    fs::write(profile.join("auth.json"), AUTH).unwrap();
+    fs::write(
+        profile.join(".config.cprof-edit.toml"),
+        "model = 'recovered'\n",
+    )
+    .unwrap();
+
+    let editor = home.editor("exit 0\n", "exit /b 0\n");
+    home.succeeds(&[
+        "codex",
+        "create",
+        "recovered",
+        "--editor",
+        editor.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        fs::read_to_string(profile.join("config.toml")).unwrap(),
+        "model = 'recovered'\n"
+    );
+    assert_eq!(fs::read_to_string(profile.join("auth.json")).unwrap(), AUTH);
+    assert!(!profile.join(".config.cprof-edit.toml").exists());
+}
+
+#[test]
 fn edit_extra_creates_the_valid_default_transactionally() {
     let home = TestHome::new();
     home.succeeds(&["edit-extra"]);

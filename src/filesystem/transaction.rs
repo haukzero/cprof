@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use crate::error::{AppError, IoContext, Result, TransactionError};
 
 use super::platform::{create_symlink, sync_parent, sync_path};
-use super::{create_staged_file, parent, path_exists, remove_any_if_exists, temporary_sibling};
+use super::{
+    create_edit_file, create_staged_file, edit_draft_path, parent, path_exists,
+    remove_any_if_exists, temporary_sibling,
+};
 
 fn transaction_conflict(path: &Path, expected_existing: bool) -> AppError {
     let expectation = if expected_existing {
@@ -48,6 +51,18 @@ impl PathTransaction {
         replace: bool,
     ) -> Result<PathBuf> {
         let staging = create_staged_file(destination, label, content)?;
+        self.add_operation(destination, Some(staging.clone()), replace)?;
+        Ok(staging)
+    }
+
+    pub(crate) fn stage_edit_file(
+        &mut self,
+        destination: &Path,
+        content: &[u8],
+        replace: bool,
+    ) -> Result<PathBuf> {
+        let staging = create_edit_file(destination, content)
+            .map_err(|source| AppError::io(&edit_draft_path(destination), source))?;
         self.add_operation(destination, Some(staging.clone()), replace)?;
         Ok(staging)
     }
@@ -291,33 +306,33 @@ mod tests {
     use super::{PathTransaction, temporary_sibling};
 
     #[test]
-    fn temporary_siblings_keep_the_destination_extension() {
-        let temporary = temporary_sibling(Path::new("/profiles/config.toml"), "edit");
+    fn staging_siblings_keep_the_destination_extension() {
+        let temporary = temporary_sibling(Path::new("/profiles/config.toml"), "stage");
 
         assert_eq!(temporary.extension(), Some(OsStr::new("toml")));
         let name = temporary.file_name().unwrap().to_string_lossy();
-        assert!(name.starts_with(".config.cprof-edit-"), "{name}");
+        assert!(name.starts_with(".config.cprof-stage-"), "{name}");
         assert!(name.ends_with(".toml"), "{name}");
     }
 
     #[test]
-    fn temporary_siblings_still_support_extensionless_and_hidden_names() {
-        let extensionless = temporary_sibling(Path::new("/profiles/settings"), "edit");
-        let hidden = temporary_sibling(Path::new("/profiles/.credentials"), "edit");
+    fn staging_siblings_support_extensionless_and_hidden_names() {
+        let extensionless = temporary_sibling(Path::new("/profiles/settings"), "stage");
+        let hidden = temporary_sibling(Path::new("/profiles/.credentials"), "stage");
 
         assert!(
             extensionless
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
-                .starts_with(".settings.cprof-edit-")
+                .starts_with(".settings.cprof-stage-")
         );
         assert!(
             hidden
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
-                .starts_with("..credentials.cprof-edit-")
+                .starts_with("..credentials.cprof-stage-")
         );
     }
 

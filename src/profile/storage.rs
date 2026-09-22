@@ -8,7 +8,7 @@ use indexmap::IndexSet;
 
 use crate::config::{self, paths};
 use crate::error::{AppError, IoContext, ProfileError, Result, TargetError, TransactionError};
-use crate::filesystem::{self, transaction::PathTransaction};
+use crate::filesystem::{self, has_edit_draft, transaction::PathTransaction};
 use crate::targets::{ResourceSpec, TargetSpec};
 
 use super::{ProfileCounts, ProfileInfo, ProfileResource, validate_name};
@@ -23,6 +23,17 @@ pub(crate) fn require_exists(target: &TargetSpec, name: &str) -> Result<()> {
         return Err(ProfileError::NotFound(name.to_string()).into());
     }
     Ok(())
+}
+
+pub(crate) fn has_edit_drafts(target: &TargetSpec, name: &str) -> Result<bool> {
+    validate_name(name)?;
+    for resource in &target.resources {
+        let path = config::profile_resource(target, name, resource)?;
+        if has_edit_draft(&path) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {

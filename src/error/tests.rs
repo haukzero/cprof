@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{
     AppError, ConfigError, EditorError, FormatError, IoContext, TargetError, TransactionError,
@@ -94,6 +94,20 @@ fn nested_validation_and_edit_errors_retain_the_cause_chain() {
         Some(AppError::Format(FormatError::Json(_)))
     ));
     assert!(json.source().unwrap().is::<serde_json::Error>());
+}
+
+#[test]
+fn locked_edit_error_explains_how_to_resume_a_draft() {
+    let error: AppError = EditorError::Locked {
+        scope: PathBuf::from("/home/example/.cprof/profiles/codex/work"),
+        lock: PathBuf::from("/tmp/cprof-edit-example.lock"),
+    }
+    .into();
+
+    let message = error.to_string();
+    assert!(message.contains("another cprof edit session is active"));
+    assert!(message.contains("stop the process holding the lock"));
+    assert!(message.contains("Existing draft will be reused"));
 }
 
 #[test]
