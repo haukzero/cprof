@@ -39,7 +39,11 @@ pub use transaction::TransactionError;
 
 pub(crate) use io_context::IoContext;
 
-/// Shared error boundary for operations spanning multiple domains.
+/// Shared error boundary for library operations and the CLI entry point.
+///
+/// Domain errors stay in their respective enums. Errors that only exist at the
+/// executable boundary, such as command-line parsing, belong here so callers
+/// can use one `Result<T>` throughout the application.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error(transparent)]
@@ -84,6 +88,9 @@ pub enum AppError {
 
     #[error(transparent)]
     Format(#[from] FormatError),
+
+    #[error(transparent)]
+    Cli(#[from] clap::Error),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;

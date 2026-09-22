@@ -9,37 +9,14 @@ use clap::error::ErrorKind;
 use cprof::cli::{self, Cli, RootCommand, TargetCli, TargetCommand};
 use cprof::commands::{root, target};
 use cprof::elevate;
-use cprof::error::{self, AppError};
+use cprof::error::{AppError, Result};
 use cprof::targets::TargetRepository;
 use cprof::ui::style;
-
-enum RunError {
-    App(AppError),
-    Cli(clap::Error),
-}
-
-impl From<AppError> for RunError {
-    fn from(error: AppError) -> Self {
-        Self::App(error)
-    }
-}
-
-impl From<clap::Error> for RunError {
-    fn from(error: clap::Error) -> Self {
-        Self::Cli(error)
-    }
-}
 
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(RunError::App(error)) => {
-            if !elevate::is_elevated_child() {
-                style::error(error);
-            }
-            ExitCode::FAILURE
-        }
-        Err(RunError::Cli(error)) => {
+        Err(AppError::Cli(error)) => {
             let exit_code = error.exit_code();
             if let Err(print_error) = error.print() {
                 style::error(print_error);
@@ -47,10 +24,16 @@ fn main() -> ExitCode {
             }
             ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
         }
+        Err(error) => {
+            if !elevate::is_elevated_child() {
+                style::error(error);
+            }
+            ExitCode::FAILURE
+        }
     }
 }
 
-fn run() -> Result<(), RunError> {
+fn run() -> Result<()> {
     let args = elevate::prepare_args(env::args_os().skip(1).collect())?;
     if cli::is_root_help_request(&args) {
         let targets = TargetRepository::load()?;
@@ -60,9 +43,7 @@ fn run() -> Result<(), RunError> {
             .iter()
             .filter(|target| !command_names.iter().any(|name| name == &target.id))
             .map(|target| target.id.clone());
-        cli::command_with_extra_targets(extra_target_ids)
-            .print_help()
-            .map_err(AppError::from)?;
+        cli::command_with_extra_targets(extra_target_ids).print_help()?;
         println!();
         return Ok(());
     }
@@ -104,7 +85,7 @@ fn run() -> Result<(), RunError> {
 fn parse_target_command(
     target_id: &str,
     args: impl IntoIterator<Item = String>,
-) -> Result<TargetCommand, RunError> {
+) -> Result<TargetCommand> {
     let command_name = format!("cprof {target_id}");
     match TargetCli::try_parse_from(once(command_name).chain(args)) {
         Ok(cli) => Ok(cli.command),
@@ -112,7 +93,7 @@ fn parse_target_command(
     }
 }
 
-fn run_target_command(target_id: &str, command: TargetCommand) -> Result<(), RunError> {
+fn run_target_command(target_id: &str, command: TargetCommand) -> Result<()> {
     let targets = TargetRepository::load()?;
     run_target_command_with_repository(&targets, target_id, command)?;
     Ok(())
@@ -122,7 +103,7 @@ fn run_target_command_with_repository(
     targets: &TargetRepository,
     target_id: &str,
     command: TargetCommand,
-) -> error::Result<()> {
+) -> Result<()> {
     let target = targets.get(target_id)?;
     match command {
         TargetCommand::Dir => target::dir::run(&target),
