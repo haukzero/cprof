@@ -2,7 +2,9 @@ use std::error::Error;
 use std::io;
 use std::path::Path;
 
-use super::{AppError, ConfigError, EditorError, IoContext, TargetError, TransactionError};
+use super::{
+    AppError, ConfigError, EditorError, FormatError, IoContext, TargetError, TransactionError,
+};
 
 #[test]
 fn io_context_preserves_path_and_original_error() {
@@ -64,7 +66,7 @@ fn contextual_io_errors_are_never_retryable() {
 #[test]
 fn nested_validation_and_edit_errors_retain_the_cause_chain() {
     let json_error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
-    let json_message = format!("JSON error: {json_error}");
+    let json_message = format!("Invalid JSON: {json_error}");
     let validation: AppError = TargetError::ResourceValidation {
         path: "auth.json".into(),
         source: Box::new(json_error.into()),
@@ -89,7 +91,7 @@ fn nested_validation_and_edit_errors_retain_the_cause_chain() {
     let json = validation.source().unwrap();
     assert!(matches!(
         json.downcast_ref::<Box<AppError>>().map(Box::as_ref),
-        Some(AppError::Json(_))
+        Some(AppError::Format(FormatError::Json(_)))
     ));
     assert!(json.source().unwrap().is::<serde_json::Error>());
 }

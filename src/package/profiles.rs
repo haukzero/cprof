@@ -57,7 +57,7 @@ pub(super) fn encode(
                 ))
                 .into());
             }
-            (expected.validate)(&resource.content)?;
+            expected.validate(&resource.content)?;
             resources.push(resource_index);
             payloads.push((
                 payload_path(target_index, profile_index, resource_index),
@@ -123,7 +123,7 @@ pub(super) fn decode<R: Read + Seek>(
             })?;
             let mut content = Vec::new();
             file.read_to_end(&mut content)?;
-            (spec.validate)(&content)?;
+            spec.validate(&content)?;
             resources.push(ProfileResource {
                 spec: spec.clone(),
                 content,

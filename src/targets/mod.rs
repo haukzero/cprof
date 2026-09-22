@@ -8,10 +8,9 @@ use std::sync::{Arc, LazyLock};
 
 use crate::config::paths;
 use crate::error::{Result, TargetError};
+use crate::format::Format;
 
 use external::ExternalTargetConfig;
-
-pub type Validator = fn(&[u8]) -> Result<()>;
 
 pub(crate) const EXTRA_TARGET_FILE: &str = "extra-target.toml";
 
@@ -31,7 +30,13 @@ pub struct ResourceSpec {
     pub absolute_active_path: Option<String>,
     pub required: bool,
     pub template: Vec<u8>,
-    pub validate: Validator,
+    pub format: Format,
+}
+
+impl ResourceSpec {
+    pub fn validate(&self, bytes: &[u8]) -> Result<()> {
+        self.format.check(bytes)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,10 +68,6 @@ impl TargetSpec {
             resource.absolute_active_path.as_deref(),
         )
     }
-}
-
-fn external_validate(_: &[u8]) -> Result<()> {
-    Ok(())
 }
 
 static BUILTIN_TARGETS: LazyLock<Vec<Arc<TargetSpec>>> =

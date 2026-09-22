@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use cprof::config;
 use cprof::error::{AppError, PathError, Result, TargetError};
+use cprof::format::Format;
 use cprof::targets::{ResourceSpec, TargetSpec};
 
 #[test]
@@ -31,7 +32,7 @@ fn resource(active_path: Option<&'static str>) -> ResourceSpec {
         absolute_active_path: None,
         required: true,
         template: Vec::new(),
-        validate: |_| Ok(()),
+        format: Format::Any,
     }
 }
 

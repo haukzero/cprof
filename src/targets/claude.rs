@@ -1,5 +1,5 @@
-use super::{ResourceSpec, TargetSpec};
-use crate::error::{AppError, Result};
+use crate::format::Format;
+use crate::targets::{ResourceSpec, TargetSpec};
 
 const TEMPLATE: &[u8] = br#"{
   "env": {},
@@ -8,12 +8,6 @@ const TEMPLATE: &[u8] = br#"{
   }
 }
 "#;
-
-fn validate(content: &[u8]) -> Result<()> {
-    serde_json::from_slice::<serde_json::Value>(content)
-        .map(|_| ())
-        .map_err(AppError::Json)
-}
 
 pub(super) fn spec() -> TargetSpec {
     TargetSpec {
@@ -25,7 +19,7 @@ pub(super) fn spec() -> TargetSpec {
             absolute_active_path: None,
             required: true,
             template: TEMPLATE.to_vec(),
-            validate,
+            format: Format::Json,
         }],
     }
 }

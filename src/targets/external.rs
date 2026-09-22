@@ -9,9 +9,10 @@ use crate::cli;
 use crate::config::{self, home, paths};
 use crate::error::{ConfigError, IoContext, Result, TargetError};
 use crate::filesystem::transaction::PathTransaction;
+use crate::format::Format;
 use crate::ui::style;
 
-use super::{BUILTIN_TARGETS, EXTRA_TARGET_FILE, ResourceSpec, TargetSpec, external_validate};
+use super::{BUILTIN_TARGETS, EXTRA_TARGET_FILE, ResourceSpec, TargetSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalTargetConfig {
@@ -203,7 +204,7 @@ impl ExternalResourceConfig {
             absolute_active_path: self.absolute_active_path.clone(),
             required: self.required.unwrap_or(true),
             template: self.template.clone().unwrap_or_default().into_bytes(),
-            validate: external_validate,
+            format: Format::Any,
         }
     }
 }

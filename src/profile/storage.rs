@@ -40,7 +40,7 @@ pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
             }
             continue;
         }
-        if (spec.validate)(&fs::read(&path).with_path(&path)?).is_err() {
+        if spec.validate(&fs::read(&path).with_path(&path)?).is_err() {
             return Ok(false);
         }
     }
@@ -278,7 +278,7 @@ pub fn read(target: &TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
             continue;
         }
         let content = fs::read(&path).with_path(&path)?;
-        (spec.validate)(&content)?;
+        spec.validate(&content)?;
         resources.push(ProfileResource {
             spec: spec.clone(),
             content,
@@ -293,7 +293,7 @@ pub fn resource_path(target: &TargetSpec, name: &str, resource: &ResourceSpec) -
 }
 
 pub fn validate_resource_file(path: &Path, resource: &ResourceSpec) -> Result<()> {
-    (resource.validate)(&fs::read(path).with_path(path)?)?;
+    resource.validate(&fs::read(path).with_path(path)?)?;
     Ok(())
 }
 
@@ -325,7 +325,7 @@ fn validate_resources(
             ))
             .into());
         }
-        (expected.validate)(&resource.content)?;
+        expected.validate(&resource.content)?;
     }
     if target
         .resources
@@ -338,7 +338,7 @@ fn validate_resources(
 }
 
 fn write_resource(path: &Path, spec: &ResourceSpec, content: &[u8]) -> Result<()> {
-    (spec.validate)(content)?;
+    spec.validate(content)?;
     filesystem::write_file(path, content)
 }
 

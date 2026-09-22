@@ -13,6 +13,7 @@ mod activation;
 mod config;
 mod editor;
 mod elevation;
+mod format;
 mod interaction;
 mod io_context;
 mod package;
@@ -28,6 +29,7 @@ pub use activation::ActivationError;
 pub use config::ConfigError;
 pub use editor::EditorError;
 pub use elevation::ElevationError;
+pub use format::FormatError;
 pub use interaction::InteractionError;
 pub use package::PackageError;
 pub use path::PathError;
@@ -80,8 +82,8 @@ pub enum AppError {
         source: io::Error,
     },
 
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Format(#[from] FormatError),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;

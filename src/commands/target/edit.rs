@@ -25,7 +25,7 @@ pub fn run(
             }
             continue;
         }
-        session.edit(&path, resource.validate)?;
+        session.edit(&path, |bytes| resource.validate(bytes))?;
     }
     let changed = session.commit()?;
     if changed {

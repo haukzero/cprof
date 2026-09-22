@@ -28,7 +28,7 @@ pub fn run(
         let mut session = EditSession::new(editor.editor, editor.editor_args)?;
         for resource in &target.resources {
             let path = storage::resource_path(target, &name, resource)?;
-            session.edit(&path, resource.validate)?;
+            session.edit(&path, |bytes| resource.validate(bytes))?;
         }
         session.commit()?;
         Ok::<(), AppError>(())

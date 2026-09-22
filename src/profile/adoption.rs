@@ -56,7 +56,7 @@ impl ActiveResource {
         paths::validate_filename(&spec.filename)?;
         let original = FileSnapshot::read(&path)?;
         match &original {
-            Some(original) => (spec.validate)(&original.content).map_err(|error| {
+            Some(original) => spec.validate(&original.content).map_err(|error| {
                 TargetError::ResourceValidation {
                     path: path.clone(),
                     source: Box::new(error),
@@ -161,6 +161,8 @@ fn commit_adoption(transaction: PathTransaction, sources: &[ActiveResource]) -> 
 #[cfg(test)]
 mod tests {
     use crate::elevate;
+    use crate::error::FormatError;
+    use crate::format::Format;
 
     use super::*;
 
@@ -172,7 +174,7 @@ mod tests {
             absolute_active_path: None,
             required,
             template: Vec::new(),
-            validate: |_| Ok(()),
+            format: Format::Any,
         }
     }
 
@@ -181,11 +183,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("auth.json");
         let resource = ResourceSpec {
-            validate: |content| {
-                serde_json::from_slice::<serde_json::Value>(content)
-                    .map(|_| ())
-                    .map_err(AppError::Json)
-            },
+            format: Format::Json,
             ..spec("auth.json", true)
         };
         assert!(matches!(ActiveResource::read(&resource, path.clone()),
@@ -193,7 +191,7 @@ mod tests {
         fs::write(&path, "{").unwrap();
         assert!(matches!(ActiveResource::read(&resource, path.clone()),
             Err(AppError::Target(TargetError::ResourceValidation { path: invalid, source }))
-                if invalid == path && matches!(*source, AppError::Json(_))));
+                if invalid == path && matches!(*source, AppError::Format(FormatError::Json(_)))));
     }
 
     fn can_create_links(directory: &Path) -> bool {

@@ -1,25 +1,8 @@
-use std::str;
-
-use crate::error::{AppError, Result, TargetError};
-
-use super::{ResourceSpec, TargetSpec};
+use crate::format::Format;
+use crate::targets::{ResourceSpec, TargetSpec};
 
 const CONFIG_TEMPLATE: &[u8] = b"# Codex configuration\n";
 const AUTH_TEMPLATE: &[u8] = b"{}\n";
-
-fn validate_toml(content: &[u8]) -> Result<()> {
-    let text = str::from_utf8(content)
-        .map_err(|_| TargetError::InvalidResource("config.toml is not valid UTF-8".to_string()))?;
-    toml::from_str::<toml::Value>(text)
-        .map(|_| ())
-        .map_err(|error| TargetError::InvalidResource(format!("invalid TOML: {error}")).into())
-}
-
-fn validate_json(content: &[u8]) -> Result<()> {
-    serde_json::from_slice::<serde_json::Value>(content)
-        .map(|_| ())
-        .map_err(AppError::Json)
-}
 
 pub(super) fn spec() -> TargetSpec {
     TargetSpec {
@@ -32,7 +15,7 @@ pub(super) fn spec() -> TargetSpec {
                 absolute_active_path: None,
                 required: true,
                 template: CONFIG_TEMPLATE.to_vec(),
-                validate: validate_toml,
+                format: Format::Toml,
             },
             ResourceSpec {
                 key: "auth".to_string(),
@@ -41,7 +24,7 @@ pub(super) fn spec() -> TargetSpec {
                 absolute_active_path: None,
                 required: true,
                 template: AUTH_TEMPLATE.to_vec(),
-                validate: validate_json,
+                format: Format::Json,
             },
         ],
     }
