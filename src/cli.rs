@@ -161,7 +161,7 @@ pub enum TargetCommand {
     Create {
         /// Profile name (prompts if omitted)
         name: Option<String>,
-        /// Copy an existing profile before editing
+        /// Copy an existing profile before editing (prompts for source if omitted)
         #[arg(short, long, value_name = "PROFILE")]
         copy_from: Option<String>,
         #[command(flatten)]

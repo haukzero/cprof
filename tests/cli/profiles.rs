@@ -173,6 +173,7 @@ fn concurrent_profile_creation_has_a_single_winner() {
     use std::thread;
 
     let home = unmanaged_codex();
+    home.codex_profile("source");
     for iteration in 0..8 {
         let name = format!("concurrent-{iteration}");
         let barrier = Barrier::new(2);
@@ -181,7 +182,7 @@ fn concurrent_profile_creation_has_a_single_winner() {
                 .map(|_| {
                     scope.spawn(|| {
                         barrier.wait();
-                        home.run(&["codex", "create", &name])
+                        home.run(&["codex", "create", &name, "-c", "source"])
                     })
                 })
                 .collect::<Vec<_>>();
@@ -215,19 +216,16 @@ fn concurrent_profile_creation_has_a_single_winner() {
         let profile = home.path.join(".cprof/profiles/codex").join(&name);
         assert_eq!(
             fs::read_to_string(profile.join("config.toml")).unwrap(),
-            "# Codex configuration\n"
+            CONFIG
         );
-        assert_eq!(
-            fs::read_to_string(profile.join("auth.json")).unwrap(),
-            "{}\n"
-        );
+        assert_eq!(fs::read_to_string(profile.join("auth.json")).unwrap(), AUTH);
         assert_eq!(fs::read_dir(profile).unwrap().count(), 2);
     }
     assert_eq!(
         fs::read_dir(home.path.join(".cprof/profiles/codex"))
             .unwrap()
             .count(),
-        8
+        9
     );
 }
 

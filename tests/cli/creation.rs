@@ -3,6 +3,51 @@ use std::fs;
 use crate::support::{TestHome, can_symlink};
 
 #[test]
+fn named_create_requires_source_selection_without_copy_from() {
+    for with_source in [false, true] {
+        let home = TestHome::new();
+        if with_source {
+            home.claude_profile("source");
+            home.codex_profile("source");
+        }
+
+        for target in ["claude", "codex"] {
+            home.fails(
+                &[target, "create", "new profile"],
+                "Interactive input required",
+            );
+            assert!(
+                !home
+                    .path
+                    .join(".cprof/profiles")
+                    .join(target)
+                    .join("new profile")
+                    .exists()
+            );
+            assert!(!home.path.join(format!(".{target}")).exists());
+        }
+    }
+}
+
+#[test]
+fn named_create_rejects_existing_profiles() {
+    let home = TestHome::new();
+    home.claude_profile("source");
+    let profile = home.claude_profile("existing");
+
+    home.fails(
+        &["claude", "create", "existing", "-c", "source"],
+        "already exists",
+    );
+
+    assert_eq!(
+        fs::read_to_string(profile.join("settings.json")).unwrap(),
+        "{}\n"
+    );
+    assert!(!home.path.join(".claude").exists());
+}
+
+#[test]
 fn create_saves_once_and_only_activates_when_no_files_exist() {
     let fixture = TestHome::new();
     let home = &fixture.path;
@@ -44,12 +89,28 @@ fn create_saves_once_and_only_activates_when_no_files_exist() {
         ("hihi", vec![("d.txt", home.join(".hihi/txt"))]),
     ];
     for (id, resources) in cases {
+        let source_resources = resources
+            .iter()
+            .map(|(filename, _)| {
+                (
+                    *filename,
+                    if filename.ends_with(".json") {
+                        "{}\n"
+                    } else {
+                        ""
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        fixture.write_profile(id, "source", &source_resources);
         for name in ["fresh profile", "existing files"] {
             fs::write(&counter, "").unwrap();
             let output = fixture.run(&[
                 id,
                 "create",
                 name,
+                "-c",
+                "source",
                 "--editor",
                 editor.to_str().unwrap(),
                 "--editor-arg",

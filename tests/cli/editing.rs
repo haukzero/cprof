@@ -133,6 +133,7 @@ fn invalid_extra_target_edits_preserve_existing_or_absent_config() {
 #[test]
 fn profile_create_resumes_an_interrupted_draft() {
     let home = TestHome::new();
+    home.codex_profile("source");
     let profile = home.path.join(".cprof/profiles/codex/recovered");
     fs::create_dir_all(&profile).unwrap();
     fs::write(profile.join("config.toml"), CONFIG).unwrap();
@@ -148,6 +149,8 @@ fn profile_create_resumes_an_interrupted_draft() {
         "codex",
         "create",
         "recovered",
+        "-c",
+        "source",
         "--editor",
         editor.to_str().unwrap(),
     ]);

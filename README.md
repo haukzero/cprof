@@ -54,7 +54,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> pack [--save path]` | 打包指定 target |
 | `cprof <target> unpack [--path path] [-f]` | 解包指定 target |
 
-- `create name` 默认从模板创建; 使用 `--copy-from profile` 或 `-c profile` 会先复制指定的已有 profile, 再进入编辑器. 省略 `create` 的名称时, 输入新名称后可在默认模板和已有 profile 间模糊选择来源. 
+- `create` 省略名称时交互输入新名称; 使用 `--copy-from profile` 或 `-c profile` 指定来源, 否则在默认模板和已有 profile 间模糊选择.
 - `adopt name` 支持普通文件和外部软链接, 如 `cprof codex adopt work`; 省略名称时交互输入新名称.
 - 其他省略 profile 名称的命令会进入模糊搜索选择. `--filename` 使用资源逻辑名称:
     - Claude 为 `settings`

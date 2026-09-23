@@ -13,16 +13,13 @@ pub fn run(
     copy_from: Option<String>,
     editor: EditorOptions,
 ) -> Result<()> {
-    let (name, copy_from) = match name {
-        Some(name) => (name, copy_from),
-        None => {
-            let name = prompt::input("Profile name")?;
-            let copy_from = match copy_from {
-                Some(source) => Some(source),
-                None => prompt::select_copy_source(target)?,
-            };
-            (name, copy_from)
-        }
+    let name = match name {
+        Some(name) => name,
+        None => prompt::input("Profile name")?,
+    };
+    let copy_from = match copy_from {
+        Some(source) => Some(source),
+        None => prompt::select_copy_source(target)?,
     };
     // Keep the lock across profile creation so an editor cannot observe a
     // newly-created profile before its initial transaction is ready.
