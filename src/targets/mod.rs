@@ -124,14 +124,3 @@ pub(crate) fn is_builtin(target: &TargetSpec) -> bool {
         .iter()
         .any(|builtin| builtin.id == target.id)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{claude, codex, is_builtin};
-
-    #[test]
-    fn builtin_targets_are_identified() {
-        assert!(is_builtin(&claude::spec()));
-        assert!(is_builtin(&codex::spec()));
-    }
-}

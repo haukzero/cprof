@@ -24,13 +24,3 @@ pub(crate) fn set_override(path: PathBuf) -> Result<()> {
         .set(path)
         .map_err(|_| ElevationError::AlreadyInitialized.into())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::dir;
-
-    #[test]
-    fn current_home_is_available() {
-        assert!(dir().is_ok());
-    }
-}

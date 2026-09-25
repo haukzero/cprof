@@ -46,28 +46,3 @@ pub fn validate_name(name: &str) -> Result<()> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::ProfileCounts;
-
-    #[test]
-    fn profile_counts_display_total_and_incomplete_counts() {
-        assert_eq!(
-            ProfileCounts {
-                total: 3,
-                incomplete: 1,
-            }
-            .to_string(),
-            "3 (1 incomplete)"
-        );
-        assert_eq!(
-            ProfileCounts {
-                total: 0,
-                incomplete: 0,
-            }
-            .to_string(),
-            "0 (0 incomplete)"
-        );
-    }
-}

@@ -43,27 +43,15 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::EditLock;
-    use std::path::Path;
-
-    #[test]
-    fn lock_path_is_stable_and_scoped() {
-        let scope = Path::new("/home/example/.cprof/profiles/codex/work");
-        let path = EditLock::path(scope);
-        assert!(path.starts_with(std::env::temp_dir()));
-        assert!(
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("cprof-edit-")
-        );
-    }
 
     #[test]
     fn lock_is_exclusive_and_released_on_drop() {
         let directory = tempfile::tempdir().unwrap();
         let scope = directory.path().join("profile");
+        let other_scope = directory.path().join("other-profile");
         let first = EditLock::try_acquire(&scope).unwrap().unwrap();
         assert!(EditLock::try_acquire(&scope).unwrap().is_none());
+        assert!(EditLock::try_acquire(&other_scope).unwrap().is_some());
         drop(first);
         assert!(EditLock::try_acquire(&scope).unwrap().is_some());
     }

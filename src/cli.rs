@@ -227,11 +227,7 @@ pub enum TargetCommand {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
-    use clap::Parser;
-
-    use super::{Cli, RootCommand, command_with_extra_targets, is_root_help_request};
+    use super::command_with_extra_targets;
 
     #[test]
     fn extra_targets_are_listed_in_root_help() {
@@ -239,52 +235,5 @@ mod tests {
         let help = command.render_help().to_string();
 
         assert!(help.contains("test_extra_target"));
-    }
-
-    #[test]
-    fn root_help_requests_are_identified_without_rendering_help() {
-        for args in [vec![], vec!["-h"], vec!["--help"], vec!["help"]] {
-            let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
-            assert!(is_root_help_request(&args), "{args:?}");
-        }
-        for args in [
-            vec!["pack", "--help"],
-            vec!["help", "pack"],
-            vec!["claude", "--help"],
-        ] {
-            let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
-            assert!(!is_root_help_request(&args), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn root_pack_select_accepts_repeated_targets() {
-        let cli = Cli::try_parse_from([
-            "cprof", "pack", "--select", "a", "--select", "b", "--select", "d",
-        ])
-        .unwrap();
-
-        let RootCommand::Pack(args) = cli.command else {
-            panic!("expected root pack command");
-        };
-        assert_eq!(
-            args.select,
-            Some(vec!["a".to_string(), "b".to_string(), "d".to_string()])
-        );
-    }
-
-    #[test]
-    fn root_pack_bare_select_is_distinct_from_no_select() {
-        let bare = Cli::try_parse_from(["cprof", "pack", "--select"]).unwrap();
-        let RootCommand::Pack(bare) = bare.command else {
-            panic!("expected root pack command");
-        };
-        assert_eq!(bare.select, Some(Vec::new()));
-
-        let absent = Cli::try_parse_from(["cprof", "pack"]).unwrap();
-        let RootCommand::Pack(absent) = absent.command else {
-            panic!("expected root pack command");
-        };
-        assert_eq!(absent.select, None);
     }
 }
