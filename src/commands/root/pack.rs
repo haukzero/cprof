@@ -2,9 +2,9 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::commands::target;
-use crate::error::{PackageError, Result, TargetError};
-use crate::package;
+use crate::commands::report_pack;
+use crate::error::{Result, TargetError};
+use crate::package::{self, pack};
 use crate::targets::{TargetRepository, TargetSpec};
 use crate::ui::prompt;
 
@@ -19,17 +19,9 @@ pub fn run(
     if selected_targets.is_empty() {
         return Err(TargetError::NoneSelected.into());
     }
-    let packages = selected_targets
-        .iter()
-        .map(|target| target::pack::collect_target(target))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    if packages.is_empty() {
-        return Err(PackageError::Invalid("No profiles to pack".to_string()).into());
-    }
-    target::pack::write_package(targets, output, &packages)
+    let report = pack::create(targets, selected_targets.iter().map(Arc::as_ref), output)?;
+    report_pack(&report, output);
+    Ok(())
 }
 
 fn selected_targets(

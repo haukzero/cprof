@@ -1,6 +1,10 @@
+//! Portable package encoding and profile import/export operations.
+
 mod archive;
 mod manifest;
+pub(crate) mod pack;
 mod profiles;
+pub(crate) mod unpack;
 
 use std::collections::HashSet;
 use std::sync::Arc;

@@ -1,32 +1,21 @@
-use crate::commands::target;
+use std::path::Path;
+
+use crate::commands::{UnpackPrompt, report_unpack};
 use crate::error::Result;
+use crate::package::{self, unpack};
 use crate::targets::TargetRepository;
 use crate::ui::style;
 
 pub fn run(targets: &TargetRepository, path: Option<String>, force: bool) -> Result<()> {
-    let packages = target::unpack::read_package(targets, path)?;
-    let (target_configs, configs_changed) =
-        target::unpack::merge_target_configs(targets, &packages, force)?;
-    let mut plans = Vec::with_capacity(packages.len());
-    for package in packages {
-        let target = target::unpack::resolve_target(targets, &package, &target_configs)?;
-        let profiles = target::unpack::remap_profiles(&target, package.profiles)?;
-        plans.push(target::unpack::prepare_unpack(target, profiles, force)?);
-    }
-
-    target::unpack::commit_unpack(&plans, &target_configs, configs_changed)?;
-    let mut targets = 0;
-    let mut unpacked = 0;
-    let mut skipped = 0;
-    for plan in &plans {
-        let (written, ignored) = plan.report();
-        targets += 1;
-        unpacked += written;
-        skipped += ignored;
-    }
+    let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
+    let report = unpack::restore(targets, Path::new(&path), None, &mut UnpackPrompt { force })?;
+    report_unpack(&report);
     println!();
     style::success(format!(
-        "{unpacked} unpacked, {skipped} skipped across {targets} target(s)"
+        "{} unpacked, {} skipped across {} target(s)",
+        report.profile_count(),
+        report.skipped_count(),
+        report.targets.len()
     ));
     Ok(())
 }
