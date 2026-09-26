@@ -23,7 +23,7 @@ impl UnpackInteraction for Interactive {
     fn begin_target(&mut self, target: &str) {
         println!(
             "{}",
-            style::heading(&format!("Unpacking target '{target}':"))
+            style::heading(&format!("Preparing target '{target}'..."))
         );
     }
 
@@ -31,7 +31,7 @@ impl UnpackInteraction for Interactive {
         style::warning(format!("Profile '{name}' already exists - conflict!"));
         let overwrite = self.force || prompt::confirm(&format!("Overwrite '{name}' ?"))?;
         if !overwrite {
-            println!("Skipped '{name}'");
+            println!("Skipped profile '{name}'");
         }
         Ok(overwrite)
     }
@@ -42,7 +42,7 @@ impl UnpackInteraction for Interactive {
         ));
         let remove = self.force || prompt::confirm(&format!("Remove '{name}' ?"))?;
         if !remove {
-            println!("Kept '{name}'");
+            println!("Kept profile '{name}'");
         }
         Ok(remove)
     }
@@ -73,22 +73,22 @@ pub(crate) fn render_restore(report: &UnpackReport) {
         {
             continue;
         }
+        println!(
+            "{}",
+            style::heading(&format!("Unpacked target '{}':", target.target))
+        );
         for name in &target.profiles {
-            println!("Unpacked '{name}'");
+            println!("  Unpacked profile '{name}'");
         }
         for name in &target.removed {
-            println!("Removed '{name}'");
+            println!("  Removed profile '{name}'");
         }
         if let Some(active_change) = &target.active_change {
             match &active_change.desired {
-                Some(name) => println!("Activated '{name}'"),
-                None => println!("Cleared active configuration"),
+                Some(name) => println!("  Activated profile '{name}'"),
+                None => println!("  Cleared active configuration"),
             }
         }
-        println!(
-            "{}",
-            style::heading(&format!("Unpacked target '{}'", target.target))
-        );
     }
 }
 

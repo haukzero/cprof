@@ -62,10 +62,32 @@ fn root_unpack_omits_targets_without_changes() {
     destination.claude_profile("same");
     let output = destination.succeeds(&["unpack", "--path", package.to_str().unwrap()]);
 
-    assert!(!output.contains("Unpacking target 'claude'"), "{output}");
+    assert!(!output.contains("Preparing target 'claude'"), "{output}");
     assert!(!output.contains("Unpacked target 'claude'"), "{output}");
-    assert!(output.contains("Unpacking target 'codex'"), "{output}");
-    assert!(output.contains("Unpacked target 'codex'"), "{output}");
+    assert!(output.contains("Preparing target 'codex'..."), "{output}");
+    assert!(output.contains("Unpacked target 'codex':"), "{output}");
+    assert!(output.contains("  Unpacked profile 'incoming'"), "{output}");
+}
+
+#[test]
+fn root_unpack_groups_profiles_under_their_targets() {
+    let source = TestHome::new();
+    source.claude_profile("shared");
+    source.codex_profile("shared");
+    source.succeeds(&["pack"]);
+    let package = source.path.join("cprof.pkg");
+
+    let destination = TestHome::new();
+    let output = destination.succeeds(&["unpack", "--path", package.to_str().unwrap(), "--force"]);
+
+    assert!(
+        output.contains(
+            "Unpacked target 'claude':\n  Unpacked profile 'shared'\nUnpacked target 'codex':\n  Unpacked profile 'shared'"
+        ),
+        "{output}"
+    );
+    assert!(output.contains("Preparing target 'claude'..."), "{output}");
+    assert!(output.contains("Preparing target 'codex'..."), "{output}");
 }
 
 #[test]
@@ -103,7 +125,7 @@ fn target_unpack_dry_run_reports_changes_without_writing() {
     assert!(output.contains("  + profile 'new'"), "{output}");
     assert!(!output.contains("profile 'same'"), "{output}");
     assert!(!output.contains(".cprof"), "{output}");
-    assert!(!output.contains("Unpacking target"), "{output}");
+    assert!(!output.contains("Preparing target"), "{output}");
     assert_eq!(
         fs::read_to_string(
             destination
