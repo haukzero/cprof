@@ -1,5 +1,6 @@
 //! Inspect and switch active resource links for stored profiles.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -116,23 +117,48 @@ pub fn switch(target: &TargetSpec, name: &str, force: bool) -> Result<bool> {
     }
 
     PathTransaction::prepare(|transaction| {
-        for resource in &target.resources {
-            let link = config::active_resource(target, resource)?;
-            let source = config::profile_resource(target, name, resource)?;
-            let exists = filesystem::path_exists(&link)?;
-            if exists && !force && managed_link_profile(target, resource, &link)?.is_none() {
-                return Err(ActivationError::UnmanagedPath(link.display().to_string()).into());
-            }
-            if source.exists() {
-                transaction.stage_symlink(&link, &source, exists)?;
-            } else if exists {
-                transaction.stage_remove(&link)?;
-            }
-        }
-        Ok(())
+        stage_switch(transaction, target, Some(name), force, None)
     })?
     .commit()?;
     Ok(false)
+}
+
+/// Stage an active-link replacement as part of a larger unpack transaction.
+/// `None` clears all active resource links for the target.
+pub(crate) fn stage_switch(
+    transaction: &mut PathTransaction,
+    target: &TargetSpec,
+    name: Option<&str>,
+    force: bool,
+    available_resources: Option<&BTreeSet<String>>,
+) -> Result<()> {
+    if let Some(name) = name {
+        validate_name(name)?;
+    }
+    for resource in &target.resources {
+        let link = config::active_resource(target, resource)?;
+        let exists = filesystem::path_exists(&link)?;
+        if exists && !force && managed_link_profile(target, resource, &link)?.is_none() {
+            return Err(ActivationError::UnmanagedPath(link.display().to_string()).into());
+        }
+        match name {
+            Some(name) => {
+                let source = config::profile_resource(target, name, resource)?;
+                let source_exists = available_resources.map_or_else(
+                    || source.exists(),
+                    |resources| resources.contains(&resource.key),
+                );
+                if source_exists {
+                    transaction.stage_symlink(&link, &source, exists)?;
+                } else if exists {
+                    transaction.stage_remove(&link)?;
+                }
+            }
+            None if exists => transaction.stage_remove(&link)?,
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn remove_profile_links(target: &TargetSpec, name: &str) -> Result<bool> {

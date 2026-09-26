@@ -155,11 +155,11 @@ fn non_current_manifest_versions_are_rejected() {
     let original = fs::read(package).unwrap();
     let mutated = source.path.join("version.pkg");
 
-    for version in [0, 1, 2, 4, 255] {
+    for version in [0, 1, 2, 3, 255] {
         let replacement = [b'C', b'P', b'M', b'F', version];
         fs::write(
             &mutated,
-            tamper_manifest(&original, b"CPMF\x03", &replacement),
+            tamper_manifest(&original, b"CPMF\x04", &replacement),
         )
         .unwrap();
         let destination = TestHome::new();

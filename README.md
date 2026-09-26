@@ -25,12 +25,12 @@ cargo install --git https://github.com/haukzero/cprof.git
 | 命令 | 说明 |
 |------|------|
 | `cprof pack [--save path] [--select [target]]...` | 打包所有或选中的 target |
-| `cprof unpack [--path path] [-f] [--dry-run]` | 一次解包所有 target |
+| `cprof unpack [--path path] [-f] [--dry-run] [--mirror]` | 一次解包所有 target |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target 的 profile |
 | `cprof edit-extra [--editor program] [--editor-arg arg]...` | 编辑外部 target 配置文件 |
 | `cprof targets [--json]` | 列出所有 target 及其相关信息, `--json` 输出 JSON |
 
-- Root command `pack` 默认一次打包所有 target; 重复传入 `--select target` 可只打包指定 target, 例如 `cprof pack --select claude --select codex`. 单独传入 `--select` 时会打开交互式多选. `unpack` 会处理包内所有 target, 默认包文件为 `cprof.pkg`.
+- Root command `pack` 默认一次打包所有 target; 重复传入 `--select target` 可只打包指定 target, 例如 `cprof pack --select claude --select codex`. 单独传入 `--select` 时会打开交互式多选. `unpack` 默认合并包内配置, 加 `--mirror` 时同步为包内状态并删除包中不存在的配置.
 - Root command `clean` 默认保留 `extra-target.toml`, 使用 `--extra-toml` 一并删除.
 - Root command `edit-extra` 会创建(如果不存在)并打开 `~/.cprof/extra-target.toml`; 使用 `--editor` 可手动指定编辑器. 配置存在语法错误或 target 定义冲突时, 仍可使用此命令编辑修复.
 
@@ -52,7 +52,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> clean [-f]` | 清空所有 profile |
 | `cprof <target> where [name] [--filename key]` | profile 文件实际位置 |
 | `cprof <target> pack [--save path]` | 打包指定 target |
-| `cprof <target> unpack [--path path] [-f] [--dry-run]` | 解包指定 target |
+| `cprof <target> unpack [--path path] [-f] [--dry-run] [--mirror]` | 解包指定 target |
 
 - `create` 省略名称时交互输入新名称; 使用 `--copy-from profile` 或 `-c profile` 指定来源, 否则在默认模板和已有 profile 间模糊选择.
 - `adopt name` 支持普通文件和外部软链接, 如 `cprof codex adopt work`; 省略名称时交互输入新名称.

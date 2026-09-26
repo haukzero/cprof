@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::error::Result;
 use crate::filesystem;
+use crate::profile::activation;
 use crate::profile::storage;
 use crate::targets::{TargetRepository, TargetSpec};
 
@@ -44,5 +45,9 @@ fn collect_target(target: &TargetSpec) -> Result<Option<TargetPackage>> {
         let resources = storage::read(target, &name)?;
         profiles.push(PackageProfile::new(name, resources));
     }
-    Ok(Some(TargetPackage::new(target.id.clone(), profiles)))
+    Ok(Some(TargetPackage::with_active(
+        target.id.clone(),
+        profiles,
+        activation::active_name(target)?,
+    )))
 }

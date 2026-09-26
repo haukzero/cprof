@@ -11,6 +11,7 @@ pub fn run(
     path: Option<String>,
     force: bool,
     dry_run: bool,
+    mirror: bool,
 ) -> Result<()> {
     let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
     if dry_run {
@@ -19,6 +20,7 @@ pub fn run(
             targets,
             Path::new(&path),
             Some(&target.id),
+            unpack::UnpackMode::from(mirror),
             &mut interaction,
         )?;
         render_preview(&report);
@@ -29,6 +31,7 @@ pub fn run(
         targets,
         Path::new(&path),
         Some(&target.id),
+        unpack::UnpackMode::from(mirror),
         &mut interaction,
     )?;
     render_restore(&report);

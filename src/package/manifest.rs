@@ -2,7 +2,8 @@ use crate::error::{PackageError, Result};
 use crate::targets::external::{self, ExternalResourceConfig, ExternalTargetConfig};
 
 const MAGIC: &[u8; 4] = b"CPMF";
-const VERSION: u8 = 3;
+const VERSION: u8 = 4;
+const ACTIVE_TRAILER: &[u8; 4] = b"ACTV";
 const MAX_ITEMS: u64 = 1_000_000;
 const MAX_STRING_LEN: usize = 1024 * 1024;
 
@@ -15,6 +16,8 @@ pub(super) struct Manifest {
 pub(super) struct ManifestTarget {
     pub(super) target: String,
     pub(super) target_config: Option<ExternalTargetConfig>,
+    pub(super) active_profile: Option<String>,
+    pub(super) active_profile_known: bool,
     pub(super) profiles: Vec<ManifestProfile>,
 }
 
@@ -45,6 +48,16 @@ pub(super) fn encode(manifest: &Manifest) -> Result<Vec<u8>> {
             for &resource_index in &profile.resources {
                 write_count(&mut bytes, resource_index);
             }
+        }
+    }
+    if manifest
+        .targets
+        .iter()
+        .all(|target| target.active_profile_known)
+    {
+        bytes.extend_from_slice(ACTIVE_TRAILER);
+        for target in &manifest.targets {
+            write_optional_string(&mut bytes, target.active_profile.as_deref())?;
         }
     }
     Ok(bytes)
@@ -90,8 +103,21 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
         targets.push(ManifestTarget {
             target,
             target_config,
+            active_profile: None,
+            active_profile_known: false,
             profiles,
         });
+    }
+    if reader.remaining() > 0 {
+        if reader.take(ACTIVE_TRAILER.len())? != ACTIVE_TRAILER {
+            return Err(
+                PackageError::Invalid("Manifest contains an invalid trailer".to_string()).into(),
+            );
+        }
+        for target in &mut targets {
+            target.active_profile = reader.read_optional_string()?;
+            target.active_profile_known = true;
+        }
     }
     reader.finish()?;
     Ok(Manifest { targets })
@@ -280,6 +306,10 @@ impl<'a> Reader<'a> {
         }
         Ok(())
     }
+
+    fn remaining(&self) -> usize {
+        self.data.len() - self.offset
+    }
 }
 
 #[cfg(test)]
@@ -292,6 +322,8 @@ mod tests {
             targets: vec![ManifestTarget {
                 target: "codex".to_string(),
                 target_config: None,
+                active_profile: Some("gpt".to_string()),
+                active_profile_known: true,
                 profiles: vec![ManifestProfile {
                     name: "gpt".to_string(),
                     resources: vec![0, 1],
@@ -303,6 +335,7 @@ mod tests {
         assert!(!encoded.windows(4).any(|window| window == b"name"));
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded.targets[0].target, "codex");
+        assert_eq!(decoded.targets[0].active_profile.as_deref(), Some("gpt"));
         assert_eq!(decoded.targets[0].profiles[0].resources, vec![0, 1]);
     }
 
@@ -324,6 +357,8 @@ mod tests {
             targets: vec![ManifestTarget {
                 target: "demo-id".to_string(),
                 target_config: Some(config.clone()),
+                active_profile: None,
+                active_profile_known: true,
                 profiles: vec![],
             }],
         };

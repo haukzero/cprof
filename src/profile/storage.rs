@@ -273,6 +273,19 @@ pub(crate) fn stage_validated_replace(
     write_resources(&staging, resources)
 }
 
+pub(crate) fn stage_delete(
+    transaction: &mut PathTransaction,
+    target: &TargetSpec,
+    name: &str,
+) -> Result<()> {
+    validate_name(name)?;
+    let directory = config::profile_dir(target, name)?;
+    if !directory.is_dir() {
+        return Err(ProfileError::NotFound(name.to_string()).into());
+    }
+    transaction.stage_remove(&directory)
+}
+
 pub fn read(target: &TargetSpec, name: &str) -> Result<Vec<ProfileResource>> {
     validate_name(name)?;
     if !exists(target, name)? {

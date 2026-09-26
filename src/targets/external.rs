@@ -410,6 +410,50 @@ where
     Ok(local)
 }
 
+/// Build the exact external target set for a mirror unpack. Root mirrors use
+/// the package set as-is; target mirrors replace only the selected target and
+/// preserve unrelated local definitions.
+pub(crate) fn replace_external_configs(
+    mut local: BTreeMap<String, ExternalTargetConfig>,
+    packaged: &[ExternalTargetConfig],
+    selected_target: Option<&str>,
+) -> Result<BTreeMap<String, ExternalTargetConfig>> {
+    let command_names = cli::command_names();
+    let home = home::dir()?;
+    for config in packaged {
+        config.validate(command_names, &home)?;
+    }
+
+    if selected_target.is_none() {
+        let mut replaced = BTreeMap::new();
+        for config in packaged {
+            if replaced
+                .insert(config.name.clone(), config.clone())
+                .is_some()
+            {
+                return Err(TargetError::Conflict(format!(
+                    "duplicate external target definition '{}'",
+                    config.name
+                ))
+                .into());
+            }
+        }
+        validate_external_configs(&replaced)?;
+        return Ok(replaced);
+    }
+
+    let target_id = selected_target.expect("selected target is present");
+    for incoming in packaged {
+        if incoming.resolved_id() != target_id {
+            continue;
+        }
+        local.retain(|name, config| name != &incoming.name && config.resolved_id() != target_id);
+        local.insert(incoming.name.clone(), incoming.clone());
+    }
+    validate_external_configs(&local)?;
+    Ok(local)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;

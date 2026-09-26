@@ -21,6 +21,8 @@ pub struct TargetPackage {
     pub target: String,
     pub profiles: Vec<PackageProfile>,
     pub(crate) target_config: Option<ExternalTargetConfig>,
+    pub(crate) active_profile: Option<String>,
+    pub(crate) active_profile_known: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +37,22 @@ impl TargetPackage {
             target: target.into(),
             profiles,
             target_config: None,
+            active_profile: None,
+            active_profile_known: false,
+        }
+    }
+
+    pub(crate) fn with_active(
+        target: impl Into<String>,
+        profiles: Vec<PackageProfile>,
+        active_profile: Option<String>,
+    ) -> Self {
+        Self {
+            target: target.into(),
+            profiles,
+            target_config: None,
+            active_profile,
+            active_profile_known: true,
         }
     }
 }
@@ -87,6 +105,8 @@ pub(crate) fn encode_with_repository(
         manifest_targets.push(manifest::ManifestTarget {
             target: package.target.clone(),
             target_config,
+            active_profile: package.active_profile.clone(),
+            active_profile_known: package.active_profile_known,
             profiles: encoded.manifest,
         });
         payloads.extend(encoded.payloads);
@@ -137,10 +157,23 @@ pub(crate) fn decode_with_repository(
             .into());
         }
         let profiles = profiles::decode(&target, target_index, manifest_target, &mut archive)?;
+        if let Some(active_profile) = &manifest_target.active_profile
+            && !profiles
+                .iter()
+                .any(|profile| &profile.name == active_profile)
+        {
+            return Err(PackageError::Invalid(format!(
+                "Active profile '{}' is not included for target '{}'",
+                active_profile, manifest_target.target
+            ))
+            .into());
+        }
         packages.push(TargetPackage {
             target: manifest_target.target.clone(),
             profiles,
             target_config: manifest_target.target_config.clone(),
+            active_profile: manifest_target.active_profile.clone(),
+            active_profile_known: manifest_target.active_profile_known,
         });
     }
     Ok(packages)
@@ -169,6 +202,8 @@ mod tests {
             targets: vec![manifest::ManifestTarget {
                 target: "demo".to_string(),
                 target_config: Some(config.clone()),
+                active_profile: None,
+                active_profile_known: true,
                 profiles: vec![manifest::ManifestProfile {
                     name: "empty".to_string(),
                     resources: vec![],

@@ -117,6 +117,85 @@ fn target_unpack_dry_run_reports_changes_without_writing() {
 }
 
 #[test]
+fn mirror_unpack_replaces_profile_names_and_active_configuration() {
+    let source = TestHome::new();
+    source.claude_profile("new");
+    source.succeeds(&["claude", "switch", "new"]);
+    source.succeeds(&["pack"]);
+    let package = source.path.join("cprof.pkg");
+
+    let destination = TestHome::new();
+    destination.claude_profile("old");
+    let dry_run = destination.succeeds(&[
+        "claude",
+        "unpack",
+        "--path",
+        package.to_str().unwrap(),
+        "--mirror",
+        "--dry-run",
+    ]);
+    assert!(
+        dry_run.contains("target 'claude':\n  + profile 'new'")
+            && dry_run.contains("  - profile 'old'")
+            && dry_run.contains("  + active profile 'new'"),
+        "{dry_run}"
+    );
+    assert!(destination.path.join(".cprof/profiles/claude/old").is_dir());
+
+    destination.succeeds(&[
+        "claude",
+        "unpack",
+        "--path",
+        package.to_str().unwrap(),
+        "--mirror",
+        "--force",
+    ]);
+    assert!(!destination.path.join(".cprof/profiles/claude/old").exists());
+    assert!(destination.path.join(".cprof/profiles/claude/new").is_dir());
+    let active = destination.path.join(".claude/settings.json");
+    assert!(active.is_symlink());
+    assert_eq!(
+        fs::canonicalize(active).unwrap(),
+        fs::canonicalize(
+            destination
+                .path
+                .join(".cprof/profiles/claude/new/settings.json")
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn root_mirror_removes_targets_absent_from_the_package() {
+    let source = TestHome::new();
+    source.claude_profile("kept");
+    source.succeeds(&["pack"]);
+    let package = source.path.join("cprof.pkg");
+
+    let destination = TestHome::new();
+    destination.codex_profile("stale");
+    destination.succeeds(&[
+        "unpack",
+        "--path",
+        package.to_str().unwrap(),
+        "--mirror",
+        "--force",
+    ]);
+    assert!(
+        destination
+            .path
+            .join(".cprof/profiles/claude/kept")
+            .is_dir()
+    );
+    assert!(
+        !destination
+            .path
+            .join(".cprof/profiles/codex/stale")
+            .exists()
+    );
+}
+
+#[test]
 fn root_unpack_dry_run_reports_external_config_without_writing() {
     let source = TestHome::new();
     let package = source.pack_external_target("[demo]\n", "demo");

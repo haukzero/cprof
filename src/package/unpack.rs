@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::config;
 use crate::error::{AppError, IoContext, PackageError, PathError, Result};
 use crate::filesystem::transaction::PathTransaction;
-use crate::profile::{self, storage};
+use crate::profile::{self, activation, storage};
 use crate::targets::external::{self, ExternalTargetConfig};
 use crate::targets::{TargetRepository, TargetSpec};
 
@@ -20,6 +20,23 @@ pub(crate) trait UnpackInteraction {
     fn use_packaged_config(&mut self, conflict: &str) -> Result<bool>;
     fn begin_target(&mut self, target: &str);
     fn overwrite_profile(&mut self, name: &str) -> Result<bool>;
+    fn remove_profile(&mut self, name: &str) -> Result<bool>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnpackMode {
+    Merge,
+    Mirror,
+}
+
+impl From<bool> for UnpackMode {
+    fn from(mirror: bool) -> Self {
+        if mirror {
+            UnpackMode::Mirror
+        } else {
+            UnpackMode::Merge
+        }
+    }
 }
 
 /// Describes the targets that were unpacked after a successful commit.
@@ -42,6 +59,7 @@ pub(crate) enum ChangeKind {
 pub(crate) enum ChangeSubject {
     TargetDefinition { target: String },
     Profile { target: String, profile: String },
+    ActiveProfile { target: String, profile: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,8 +71,16 @@ pub(crate) struct UnpackChange {
 pub(crate) struct UnpackedTarget {
     pub(crate) target: String,
     pub(crate) profiles: Vec<String>,
+    pub(crate) removed: Vec<String>,
+    pub(crate) active_change: Option<ActiveChange>,
     pub(crate) unchanged: usize,
     pub(crate) skipped: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveChange {
+    pub(crate) previous: Option<String>,
+    pub(crate) desired: Option<String>,
 }
 
 impl UnpackReport {
@@ -72,6 +98,10 @@ impl UnpackReport {
     pub(crate) fn unchanged_count(&self) -> usize {
         self.targets.iter().map(|target| target.unchanged).sum()
     }
+
+    pub(crate) fn removed_count(&self) -> usize {
+        self.targets.iter().map(|target| target.removed.len()).sum()
+    }
 }
 
 /// Restore every packaged target, or only `target_id` when supplied.
@@ -79,10 +109,11 @@ pub(crate) fn restore(
     targets: &TargetRepository,
     path: &Path,
     target_id: Option<&str>,
+    mode: UnpackMode,
     interaction: &mut impl UnpackInteraction,
 ) -> Result<UnpackReport> {
     let packages = selected_packages(targets, path, target_id)?;
-    UnpackPlan::prepare(targets, packages, interaction)?.commit()
+    UnpackPlan::prepare(targets, packages, target_id, mode, interaction)?.commit()
 }
 
 /// Prepare an unpack without staging or committing any filesystem changes.
@@ -90,10 +121,11 @@ pub(crate) fn preview(
     targets: &TargetRepository,
     path: &Path,
     target_id: Option<&str>,
+    mode: UnpackMode,
     interaction: &mut impl UnpackInteraction,
 ) -> Result<UnpackPreview> {
     let packages = selected_packages(targets, path, target_id)?;
-    Ok(UnpackPlan::prepare(targets, packages, interaction)?.preview_report())
+    Ok(UnpackPlan::prepare(targets, packages, target_id, mode, interaction)?.preview_report())
 }
 
 // Keep validated profiles and the corresponding configuration change together
@@ -108,16 +140,47 @@ impl UnpackPlan {
     fn prepare(
         targets: &TargetRepository,
         packages: Vec<TargetPackage>,
+        target_id: Option<&str>,
+        mode: UnpackMode,
         interaction: &mut impl UnpackInteraction,
     ) -> Result<Self> {
-        let target_configs = merge_target_configs(targets, &packages, interaction)?;
+        let target_configs =
+            merge_target_configs(targets, &packages, target_id, mode, interaction)?;
         let target_config_changes =
             target_config_changes(targets.external_configs(), &target_configs);
         let mut plans = Vec::with_capacity(packages.len());
+        let packaged_targets = packages
+            .iter()
+            .map(|package| package.target.clone())
+            .collect::<BTreeSet<_>>();
         for package in packages {
             let target = resolve_target(targets, &package, &target_configs)?;
+            let active_profile = package.active_profile.clone();
+            let active_profile_known = package.active_profile_known;
             let profiles = remap_profiles(&target, package.profiles)?;
-            plans.push(TargetPlan::prepare(target, profiles, interaction)?);
+            plans.push(TargetPlan::prepare(
+                target,
+                profiles,
+                active_profile,
+                active_profile_known,
+                mode,
+                interaction,
+            )?);
+        }
+        if mode == UnpackMode::Mirror && target_id.is_none() {
+            for target in targets.all() {
+                if packaged_targets.contains(&target.id) {
+                    continue;
+                }
+                plans.push(TargetPlan::prepare(
+                    target.clone(),
+                    Vec::new(),
+                    None,
+                    true,
+                    mode,
+                    interaction,
+                )?);
+            }
         }
         Ok(Self {
             targets: plans,
@@ -166,6 +229,35 @@ impl UnpackPlan {
                     },
                 });
             }
+            for name in &plan.removed {
+                changes.push(UnpackChange {
+                    kind: ChangeKind::Deleted,
+                    subject: ChangeSubject::Profile {
+                        target: plan.target.id.clone(),
+                        profile: name.clone(),
+                    },
+                });
+            }
+            if let Some(active_change) = &plan.active_change {
+                let kind = match (&active_change.previous, &active_change.desired) {
+                    (None, Some(_)) => ChangeKind::Added,
+                    (Some(_), None) => ChangeKind::Deleted,
+                    (Some(_), Some(_)) => ChangeKind::Modified,
+                    (None, None) => unreachable!(),
+                };
+                let profile = active_change
+                    .desired
+                    .as_ref()
+                    .or(active_change.previous.as_ref())
+                    .expect("active change has a profile");
+                changes.push(UnpackChange {
+                    kind,
+                    subject: ChangeSubject::ActiveProfile {
+                        target: plan.target.id.clone(),
+                        profile: profile.clone(),
+                    },
+                });
+            }
         }
         changes.sort_by(|left, right| {
             change_target(&left.subject)
@@ -179,15 +271,18 @@ impl UnpackPlan {
 
 fn change_target(subject: &ChangeSubject) -> &str {
     match subject {
-        ChangeSubject::TargetDefinition { target } | ChangeSubject::Profile { target, .. } => {
-            target
-        }
+        ChangeSubject::TargetDefinition { target }
+        | ChangeSubject::Profile { target, .. }
+        | ChangeSubject::ActiveProfile { target, .. } => target,
     }
 }
 
 struct TargetPlan {
     target: Arc<TargetSpec>,
     profiles: Vec<PlannedProfile>,
+    removed: Vec<String>,
+    active_change: Option<ActiveChange>,
+    active_resources: Option<BTreeSet<String>>,
     unchanged: usize,
     skipped: usize,
 }
@@ -206,24 +301,97 @@ impl TargetPlan {
     fn prepare(
         target: Arc<TargetSpec>,
         profiles: Vec<PackageProfile>,
+        desired_active: Option<String>,
+        active_profile_known: bool,
+        mode: UnpackMode,
         interaction: &mut impl UnpackInteraction,
     ) -> Result<Self> {
         let mut unchanged = 0;
+        if mode == UnpackMode::Mirror
+            && let Some(active_profile) = desired_active.as_deref()
+            && !profiles
+                .iter()
+                .any(|profile| profile.name == active_profile)
+        {
+            return Err(PackageError::Invalid(format!(
+                "Active profile '{active_profile}' is not included for target '{}'",
+                target.id
+            ))
+            .into());
+        }
+        let package_names = (mode == UnpackMode::Mirror).then(|| {
+            profiles
+                .iter()
+                .map(|profile| profile.name.clone())
+                .collect::<BTreeSet<_>>()
+        });
         let mut candidates = Vec::with_capacity(profiles.len());
-        for package_profile in profiles {
+        for package_profile in &profiles {
             let directory = config::profile_dir(&target, &package_profile.name)?;
             let exists = directory.is_dir();
-            let changed = !exists || profile_changed(&target, &package_profile, &directory)?;
+            let changed = !exists || profile_changed(&target, package_profile, &directory)?;
             if !changed {
                 unchanged += 1;
                 continue;
             }
             candidates.push(ProfileCandidate {
-                package: package_profile,
+                package: package_profile.clone(),
                 exists,
             });
         }
-        if !candidates.is_empty() {
+        let removed_candidates = if mode == UnpackMode::Mirror {
+            storage::names(&target)?
+                .into_iter()
+                .filter(|name| {
+                    !package_names
+                        .as_ref()
+                        .expect("mirror package names")
+                        .contains(name)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let active_change = if mode == UnpackMode::Mirror && active_profile_known {
+            let status = activation::status(&target)?;
+            let previous = status.active_name().map(str::to_owned);
+            let changed = match desired_active.as_deref() {
+                Some(name) => previous.as_deref() != Some(name),
+                None => !matches!(status, activation::Status::NoFiles),
+            };
+            changed.then_some(ActiveChange {
+                previous,
+                desired: desired_active.clone(),
+            })
+        } else if mode == UnpackMode::Mirror {
+            let status = activation::status(&target)?;
+            let previous = status.active_name().map(str::to_owned);
+            let removed_active = previous
+                .as_ref()
+                .is_some_and(|name| removed_candidates.contains(name));
+            removed_active.then_some(ActiveChange {
+                previous,
+                desired: None,
+            })
+        } else {
+            None
+        };
+        let active_resources = active_profile_known
+            .then_some(desired_active.as_ref())
+            .flatten()
+            .and_then(|active| {
+                profiles
+                    .iter()
+                    .find(|profile| &profile.name == active)
+                    .map(|profile| {
+                        profile
+                            .resources
+                            .iter()
+                            .map(|resource| resource.spec.key.clone())
+                            .collect()
+                    })
+            });
+        if !candidates.is_empty() || !removed_candidates.is_empty() || active_change.is_some() {
             interaction.begin_target(&target.id);
         }
 
@@ -245,9 +413,18 @@ impl TargetPlan {
                 overwrite: candidate.exists,
             });
         }
+        let mut removed = Vec::with_capacity(removed_candidates.len());
+        for name in removed_candidates {
+            if interaction.remove_profile(&name)? {
+                removed.push(name);
+            }
+        }
         Ok(Self {
             target,
             profiles: planned,
+            removed,
+            active_change,
+            active_resources,
             unchanged,
             skipped,
         })
@@ -263,6 +440,18 @@ impl TargetPlan {
                 planned.overwrite,
             )?;
         }
+        for name in &self.removed {
+            storage::stage_delete(transaction, &self.target, name)?;
+        }
+        if let Some(active_change) = &self.active_change {
+            activation::stage_switch(
+                transaction,
+                &self.target,
+                active_change.desired.as_deref(),
+                true,
+                self.active_resources.as_ref(),
+            )?;
+        }
         Ok(())
     }
 
@@ -274,6 +463,8 @@ impl TargetPlan {
                 .into_iter()
                 .map(|profile| profile.package.name)
                 .collect(),
+            removed: self.removed,
+            active_change: self.active_change,
             unchanged: self.unchanged,
             skipped: self.skipped,
         }
@@ -369,15 +560,26 @@ fn read_package(targets: &TargetRepository, path: &Path) -> Result<Vec<TargetPac
 fn merge_target_configs(
     targets: &TargetRepository,
     packages: &[TargetPackage],
+    target_id: Option<&str>,
+    mode: UnpackMode,
     interaction: &mut impl UnpackInteraction,
 ) -> Result<BTreeMap<String, ExternalTargetConfig>> {
     let packaged = packages
         .iter()
         .filter_map(|package| package.target_config.clone())
         .collect::<Vec<_>>();
-    external::merge_external_configs(targets.external_configs().clone(), &packaged, |conflict| {
-        interaction.use_packaged_config(conflict)
-    })
+    match mode {
+        UnpackMode::Merge => external::merge_external_configs(
+            targets.external_configs().clone(),
+            &packaged,
+            |conflict| interaction.use_packaged_config(conflict),
+        ),
+        UnpackMode::Mirror => external::replace_external_configs(
+            targets.external_configs().clone(),
+            &packaged,
+            target_id,
+        ),
+    }
 }
 
 fn resolve_target(
