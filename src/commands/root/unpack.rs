@@ -1,19 +1,32 @@
 use std::path::Path;
 
-use crate::commands::{UnpackPrompt, report_unpack};
+use crate::commands::support::unpack::{Interactive, Preview, render_preview, render_restore};
 use crate::error::Result;
 use crate::package::{self, unpack};
 use crate::targets::TargetRepository;
 use crate::ui::style;
 
-pub fn run(targets: &TargetRepository, path: Option<String>, force: bool) -> Result<()> {
+pub fn run(
+    targets: &TargetRepository,
+    path: Option<String>,
+    force: bool,
+    dry_run: bool,
+) -> Result<()> {
     let path = path.unwrap_or_else(|| package::DEFAULT_FILE_NAME.to_string());
-    let report = unpack::restore(targets, Path::new(&path), None, &mut UnpackPrompt { force })?;
-    report_unpack(&report);
+    if dry_run {
+        let mut interaction = Preview;
+        let report = unpack::preview(targets, Path::new(&path), None, &mut interaction)?;
+        render_preview(&report);
+        return Ok(());
+    }
+    let mut interaction = Interactive::new(force);
+    let report = unpack::restore(targets, Path::new(&path), None, &mut interaction)?;
+    render_restore(&report);
     println!();
     style::success(format!(
-        "{} unpacked, {} skipped across {} target(s)",
+        "{} unpacked, {} unchanged, {} skipped across {} target(s)",
         report.profile_count(),
+        report.unchanged_count(),
         report.skipped_count(),
         report.targets.len()
     ));

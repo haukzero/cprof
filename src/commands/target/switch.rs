@@ -1,4 +1,4 @@
-use crate::commands::warn_adopt;
+use crate::commands::support::adopt;
 use crate::elevate;
 use crate::error::Result;
 use crate::profile::{activation, storage};
@@ -7,7 +7,7 @@ use crate::ui::{prompt, style};
 
 pub fn run(target: &TargetSpec, name: Option<String>, force: bool) -> Result<()> {
     let status = activation::status(target)?;
-    warn_adopt(&target.id, &status);
+    adopt::warn_unmanaged(&target.id, &status);
     if force && status == activation::Status::Unmanaged && !elevate::is_elevated_child() {
         style::warning("Switching with --force replaces unmanaged entries without saving them");
     }

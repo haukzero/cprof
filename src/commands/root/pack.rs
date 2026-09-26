@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::commands::report_pack;
+use crate::commands::support::pack::render_summary;
 use crate::error::{Result, TargetError};
 use crate::package::{self, pack};
 use crate::targets::{TargetRepository, TargetSpec};
@@ -20,7 +20,7 @@ pub fn run(
         return Err(TargetError::NoneSelected.into());
     }
     let report = pack::create(targets, selected_targets.iter().map(Arc::as_ref), output)?;
-    report_pack(&report, output);
+    render_summary(&report, output);
     Ok(())
 }
 

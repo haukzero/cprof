@@ -25,7 +25,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | 命令 | 说明 |
 |------|------|
 | `cprof pack [--save path] [--select [target]]...` | 打包所有或选中的 target |
-| `cprof unpack [--path path] [-f]` | 一次解包所有 target |
+| `cprof unpack [--path path] [-f] [--dry-run]` | 一次解包所有 target |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target 的 profile |
 | `cprof edit-extra [--editor program] [--editor-arg arg]...` | 编辑外部 target 配置文件 |
 | `cprof targets [--json]` | 列出所有 target 及其相关信息, `--json` 输出 JSON |
@@ -52,7 +52,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 | `cprof <target> clean [-f]` | 清空所有 profile |
 | `cprof <target> where [name] [--filename key]` | profile 文件实际位置 |
 | `cprof <target> pack [--save path]` | 打包指定 target |
-| `cprof <target> unpack [--path path] [-f]` | 解包指定 target |
+| `cprof <target> unpack [--path path] [-f] [--dry-run]` | 解包指定 target |
 
 - `create` 省略名称时交互输入新名称; 使用 `--copy-from profile` 或 `-c profile` 指定来源, 否则在默认模板和已有 profile 间模糊选择.
 - `adopt name` 支持普通文件和外部软链接, 如 `cprof codex adopt work`; 省略名称时交互输入新名称.

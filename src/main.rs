@@ -58,7 +58,7 @@ fn run() -> Result<()> {
         }
         RootCommand::Unpack(args) => {
             let targets = TargetRepository::load()?;
-            root::unpack::run(&targets, args.path, args.force)?;
+            root::unpack::run(&targets, args.path, args.force, args.dry_run)?;
         }
         RootCommand::Clean(args) => {
             let targets = TargetRepository::load()?;
@@ -129,6 +129,8 @@ fn run_target_command_with_repository(
         TargetCommand::Clean { force } => target::clean::run(&target, force),
         TargetCommand::Where { name, filename } => target::where_::run(&target, name, filename),
         TargetCommand::Pack(args) => target::pack::run(targets, &target, args.save),
-        TargetCommand::Unpack(args) => target::unpack::run(targets, &target, args.path, args.force),
+        TargetCommand::Unpack(args) => {
+            target::unpack::run(targets, &target, args.path, args.force, args.dry_run)
+        }
     }
 }

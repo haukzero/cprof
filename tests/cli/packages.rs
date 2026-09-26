@@ -3,7 +3,7 @@ use std::fs;
 use crate::support::{INVALID_CONFIGS, TestHome};
 
 #[test]
-fn non_interactive_unpack_conflict_fails_before_commit() {
+fn non_interactive_unpack_ignores_identical_profile_and_restores_changes() {
     let source = TestHome::new();
     source.claude_profile("existing");
     source.claude_profile("incoming");
@@ -12,10 +12,9 @@ fn non_interactive_unpack_conflict_fails_before_commit() {
 
     let destination = TestHome::new();
     destination.claude_profile("existing");
-    destination.fails(
-        &["claude", "unpack", "--path", package.to_str().unwrap()],
-        "Interactive input required",
-    );
+    let output = destination.succeeds(&["claude", "unpack", "--path", package.to_str().unwrap()]);
+    assert!(!output.contains("conflict"), "{output}");
+    assert!(!output.contains("Overwrite"), "{output}");
     assert!(
         destination
             .path
@@ -23,11 +22,117 @@ fn non_interactive_unpack_conflict_fails_before_commit() {
             .is_dir()
     );
     assert!(
-        !destination
+        destination
             .path
             .join(".cprof/profiles/claude/incoming")
-            .exists()
+            .is_dir()
     );
+}
+
+#[test]
+fn unpack_identical_profile_is_silent_and_unchanged() {
+    let source = TestHome::new();
+    source.claude_profile("same");
+    source.succeeds(&["pack"]);
+    let package = source.path.join("cprof.pkg");
+
+    let destination = TestHome::new();
+    destination.claude_profile("same");
+    let output = destination.succeeds(&["unpack", "--path", package.to_str().unwrap()]);
+
+    assert!(!output.contains("conflict"), "{output}");
+    assert!(!output.contains("Overwrite"), "{output}");
+    assert!(!output.contains("Unpacking target"), "{output}");
+    assert!(!output.contains("Unpacked target"), "{output}");
+    assert!(
+        output.contains("0 unpacked, 1 unchanged, 0 skipped across 1 target(s)"),
+        "{output}"
+    );
+}
+
+#[test]
+fn root_unpack_omits_targets_without_changes() {
+    let source = TestHome::new();
+    source.claude_profile("same");
+    source.codex_profile("incoming");
+    source.succeeds(&["pack"]);
+    let package = source.path.join("cprof.pkg");
+
+    let destination = TestHome::new();
+    destination.claude_profile("same");
+    let output = destination.succeeds(&["unpack", "--path", package.to_str().unwrap()]);
+
+    assert!(!output.contains("Unpacking target 'claude'"), "{output}");
+    assert!(!output.contains("Unpacked target 'claude'"), "{output}");
+    assert!(output.contains("Unpacking target 'codex'"), "{output}");
+    assert!(output.contains("Unpacked target 'codex'"), "{output}");
+}
+
+#[test]
+fn target_unpack_dry_run_reports_changes_without_writing() {
+    let source = TestHome::new();
+    source.write_profile(
+        "claude",
+        "existing",
+        &[("settings.json", "{\"incoming\":true}\n")],
+    );
+    source.claude_profile("new");
+    source.claude_profile("same");
+    source.succeeds(&["claude", "pack"]);
+    let package = source.path.join("cprof.pkg");
+
+    let destination = TestHome::new();
+    destination.write_profile(
+        "claude",
+        "existing",
+        &[("settings.json", "{\"local\":true}\n")],
+    );
+    destination.claude_profile("same");
+    let output = destination.succeeds(&[
+        "claude",
+        "unpack",
+        "--path",
+        package.to_str().unwrap(),
+        "--dry-run",
+    ]);
+
+    assert!(
+        output.contains("target 'claude':\n  M profile 'existing'"),
+        "{output}"
+    );
+    assert!(output.contains("  + profile 'new'"), "{output}");
+    assert!(!output.contains("profile 'same'"), "{output}");
+    assert!(!output.contains(".cprof"), "{output}");
+    assert!(!output.contains("Unpacking target"), "{output}");
+    assert_eq!(
+        fs::read_to_string(
+            destination
+                .path
+                .join(".cprof/profiles/claude/existing/settings.json")
+        )
+        .unwrap(),
+        "{\"local\":true}\n"
+    );
+    assert!(!destination.path.join(".cprof/profiles/claude/new").exists());
+}
+
+#[test]
+fn root_unpack_dry_run_reports_external_config_without_writing() {
+    let source = TestHome::new();
+    let package = source.pack_external_target("[demo]\n", "demo");
+    let destination = TestHome::new();
+
+    let output =
+        destination.succeeds(&["unpack", "--path", package.to_str().unwrap(), "--dry-run"]);
+
+    assert!(
+        output.contains("target 'demo':\n  + configuration"),
+        "{output}"
+    );
+    assert!(output.contains("  + profile 'test'"), "{output}");
+    assert!(!output.contains(".cprof"), "{output}");
+    assert!(!destination.config_path().exists());
+    assert!(!destination.path.join(".cprof/profiles").exists());
 }
 
 #[test]

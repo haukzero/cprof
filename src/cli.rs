@@ -107,6 +107,9 @@ pub struct UnpackArgs {
     /// Force overwrite all existing profiles
     #[arg(short, long)]
     pub force: bool,
+    /// Show the changes without writing them
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args)]

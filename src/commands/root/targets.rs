@@ -4,7 +4,7 @@ use std::result;
 use serde::{Serialize, Serializer};
 use unicode_width::UnicodeWidthStr;
 
-use crate::commands::warn_adopt;
+use crate::commands::support::adopt;
 use crate::config;
 use crate::error::Result;
 use crate::profile::activation::{self, Status};
@@ -108,7 +108,7 @@ pub fn run(targets: &targets::TargetRepository, json: bool) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     rows.iter()
-        .for_each(|row| warn_adopt(&row.name, &row.status));
+        .for_each(|row| adopt::warn_unmanaged(&row.name, &row.status));
 
     if json {
         println!("{}", serde_json::to_string_pretty(&rows)?);
