@@ -108,11 +108,10 @@ pub struct UnpackArgs {
     #[arg(short, long)]
     pub force: bool,
     /// Show the changes without writing them
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub dry_run: bool,
-    /// Mirror profiles, active configuration, and external target definitions.
-    /// Remove local entries absent from the package.
-    #[arg(long)]
+    /// Mirror profiles, active config, and external targets; remove local extras
+    #[arg(short, long)]
     pub mirror: bool,
 }
 
