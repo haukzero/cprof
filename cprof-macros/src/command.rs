@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
-    Expr, ExprArray, Ident, ItemFn, Member, Path, PathArguments, ReturnType, Token,
+    Expr, ExprArray, FnArg, Ident, ItemFn, Member, Path, PathArguments, Token,
     parse::{Parse, ParseStream},
     parse_quote,
     visit_mut::{self, VisitMut},
@@ -184,23 +184,29 @@ pub(crate) fn expand(command: Command, mut function: ItemFn) -> syn::Result<Toke
             ));
         }
     }
-    let original_output = match &function.sig.output {
-        ReturnType::Type(_, ty) => ty.clone(),
-        ReturnType::Default => {
+    let mut dispatch = function.sig.clone();
+    dispatch.ident = format_ident!("__cprof_dispatch_run");
+    dispatch.output = parse_quote!(-> crate::error::Result<()>);
+    let mut arguments = Vec::new();
+    for (index, input) in dispatch.inputs.iter_mut().enumerate() {
+        let FnArg::Typed(input) = input else {
             return Err(syn::Error::new_spanned(
-                &function.sig,
-                "command run must return Result<()> for dispatch",
+                input,
+                "command requires a free function",
             ));
-        }
-    };
-    let original = function.block;
-    function.sig.output = parse_quote!(-> crate::error::Result<crate::commands::CommandCompletion>);
-    function.block = Box::new(parse_quote!({
-        let result: #original_output = (|| #original)();
-        result.map(|()| crate::commands::CommandCompletion::new())
-    }));
+        };
+        let argument = format_ident!("__cprof_arg_{index}");
+        input.pat = Box::new(parse_quote!(#argument));
+        arguments.push(argument);
+    }
     Ok(quote! {
         #function
+
+        #[doc(hidden)]
+        pub(crate) #dispatch {
+            let result: crate::error::Result<()> = run(#(#arguments),*);
+            result
+        }
     })
 }
 
@@ -244,14 +250,27 @@ mod tests {
     }
 
     #[test]
-    fn run_returns_a_dispatch_completion() {
+    fn generates_a_checked_dispatch_entry() {
         let options = syn::parse_str::<Command>("no_retry").unwrap();
         let function = syn::parse_quote! {
             pub fn run() -> Result<()> { Ok(()) }
         };
         let expanded = expand(options, function).unwrap().to_string();
-        assert!(expanded.contains("Result < crate :: commands :: CommandCompletion >"));
-        assert!(expanded.contains("let result : Result < () >"));
-        assert!(!expanded.contains("COMMAND_MARKER"));
+        assert!(expanded.contains("pub fn run () -> Result < () >"));
+        assert!(expanded.contains("__cprof_dispatch_run () -> crate :: error :: Result < () >"));
+        assert!(expanded.contains("let result : crate :: error :: Result < () > = run ()"));
+    }
+
+    #[test]
+    fn accepts_a_result_alias_for_the_compiler_to_check() {
+        let options = syn::parse_str::<Command>("no_retry").unwrap();
+        let function = syn::parse_quote! {
+            pub fn run(value: &str) -> CommandResult<()> { Ok(()) }
+        };
+        let expanded = expand(options, function).unwrap().to_string();
+        assert!(expanded.contains("pub fn run (value : & str) -> CommandResult < () >"));
+        assert!(
+            expanded.contains("let result : crate :: error :: Result < () > = run (__cprof_arg_0)")
+        );
     }
 }

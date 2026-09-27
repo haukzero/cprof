@@ -11,21 +11,6 @@ pub mod root;
 pub(crate) mod support;
 pub mod target;
 
-#[doc(hidden)]
-pub struct CommandCompletion {
-    _private: (),
-}
-
-impl CommandCompletion {
-    pub(crate) fn new() -> Self {
-        Self { _private: () }
-    }
-}
-
-pub(crate) fn finish_command(result: Result<CommandCompletion>) -> Result<()> {
-    result.map(|_| ())
-}
-
 #[cprof_macros::command_dispatch]
 pub fn dispatch_root(command: RootCommand) -> Result<()> {
     match command {

@@ -1,5 +1,5 @@
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
     Expr, ExprCall, ItemFn, parse_quote,
     visit_mut::{self, VisitMut},
@@ -19,8 +19,12 @@ impl VisitMut for CommandCalls {
         visit_mut::visit_expr_call_mut(self, call);
         if is_command_call(call) {
             self.count += 1;
-            let call = Expr::Call(call.clone());
-            *expression = parse_quote!(crate::commands::finish_command(#call));
+            let mut call = call.clone();
+            let Expr::Path(path) = call.func.as_mut() else {
+                unreachable!("command calls have a path")
+            };
+            path.path.segments.last_mut().unwrap().ident = format_ident!("__cprof_dispatch_run");
+            *expression = parse_quote!(#call);
         }
     }
 }
@@ -58,7 +62,7 @@ mod tests {
     use super::expand;
 
     #[test]
-    fn checks_command_result_types_at_each_call() {
+    fn routes_command_calls_through_generated_entries() {
         let function = syn::parse_quote! {
             fn dispatch() {
                 root::clean::run();
@@ -67,9 +71,9 @@ mod tests {
             }
         };
         let expanded = expand(Default::default(), function).unwrap().to_string();
-        assert!(expanded.contains("finish_command (root :: clean :: run ())"));
-        assert!(expanded.contains("finish_command (target :: create :: run ())"));
-        assert!(!expanded.contains("finish_command (other :: helper :: run ())"));
+        assert!(expanded.contains("root :: clean :: __cprof_dispatch_run ()"));
+        assert!(expanded.contains("target :: create :: __cprof_dispatch_run ()"));
+        assert!(expanded.contains("other :: helper :: run ()"));
     }
 
     #[test]
