@@ -1,6 +1,6 @@
 [package]
 name = "cprof"
-version = "0.2.7"
+version = "0.2.8"
 edition.workspace = true
 rust-version.workspace = true
 description = "A command-line profile manager for Claude Code and Codex configurations"
