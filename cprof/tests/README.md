@@ -31,6 +31,11 @@ cargo test --workspace --all-targets -- --include-ignored
 The marker does not launch UAC. Keep tests that verify missing-privilege failures
 in the default suite.
 
+The unpack decision replay tests are platform-independent and exercise the
+decision keys without launching an elevated process. The context-file tests
+under `elevate::context` compile only on Windows because they verify Windows
+file-sharing behavior used by the UAC retry.
+
 ## CLI fixture
 
 [TestHome](cli/support/mod.rs) isolates configuration in a temporary directory.

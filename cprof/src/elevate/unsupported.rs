@@ -14,6 +14,10 @@ pub fn is_privilege_error(_: &AppError) -> bool {
     false
 }
 
-pub(super) fn run_as_admin(_: &[OsString]) -> Result<()> {
+pub(super) fn take_context() -> Result<Option<serde_json::Value>> {
+    Ok(None)
+}
+
+pub(super) fn run_as_admin(_: &[OsString], _: Option<&serde_json::Value>) -> Result<()> {
     Err(ElevationError::Failed.into())
 }

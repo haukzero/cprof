@@ -11,6 +11,7 @@ use crate::ui::style;
     retry = plan.commit,
     args = ["unpack", "--path", absolute(&path)?.into_os_string()],
     flags = [(force, "--force"), (mirror, "--mirror")],
+    context = interaction.retry_context(&plan)?,
 )]
 pub fn run(
     targets: &TargetRepository,
@@ -32,7 +33,7 @@ pub fn run(
         render_preview(&report);
         return Ok(());
     }
-    let mut interaction = Interactive::new(force);
+    let mut interaction = Interactive::new(force)?;
     let plan = unpack::prepare(
         targets,
         Path::new(&path),
@@ -40,6 +41,7 @@ pub fn run(
         unpack::UnpackMode::from(mirror),
         &mut interaction,
     )?;
+    interaction.finish(&plan)?;
     plan.commit()?;
     if elevate::is_elevated_child() {
         return Ok(());

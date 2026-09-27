@@ -12,7 +12,9 @@ mod windows_elevation;
 ///
 /// Use `#[command(no_retry)]` when the command has no safe elevation retry.
 /// Otherwise, specify exactly one rollback-safe call with `retry`, the CLI
-/// `args` to replay, and optional conditional `flags`.
+/// `args` to replay, optional conditional `flags`, and an optional serialized
+/// `context` expression for command-specific decisions. Like arguments, the
+/// context expression is evaluated only when an elevated retry is needed.
 ///
 /// Replay arguments are built only after a recoverable privilege error. The
 /// selected call returns `Result<Option<T>>`: `Some(T)` on local success, or

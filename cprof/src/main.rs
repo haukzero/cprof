@@ -24,10 +24,11 @@ fn main() -> ExitCode {
             ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
         }
         Err(error) => {
+            let exit_code = elevate::error_exit_code(&error);
             if !elevate::is_elevated_child() {
                 style::error(error);
             }
-            ExitCode::FAILURE
+            ExitCode::from(exit_code)
         }
     }
 }

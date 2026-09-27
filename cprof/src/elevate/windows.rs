@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::iter::once;
 use std::mem::size_of;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_PRIVILEGE_NOT_HELD, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
@@ -12,21 +12,41 @@ use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, 
 use crate::config::home;
 use crate::error::{AppError, ElevationError, Result};
 
-use super::arguments::{ELEVATED_HOME_ARG, quote_arg, split_elevation_prefix};
+use super::arguments::{
+    ELEVATED_CONTEXT_ARG, ELEVATED_HOME_ARG, quote_arg, split_context_prefix,
+    split_elevation_prefix,
+};
+use super::context::{ContextFile, read_context};
 
 static ELEVATED: OnceLock<()> = OnceLock::new();
+static CONTEXT: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
 /// ShellExecuteEx can launch under a different account, so carry the original
 /// home explicitly instead of depending on inherited environment variables.
 pub fn prepare_args(args: Vec<OsString>) -> Result<Vec<OsString>> {
     let (home, args) = split_elevation_prefix(args)?;
     if let Some(home) = home {
-        home::set_override(home)?;
+        home::set_override(home.clone())?;
         ELEVATED
             .set(())
             .map_err(|_| ElevationError::AlreadyInitialized)?;
+        let (reference, args) = split_context_prefix(args)?;
+        if let Some(reference) = reference {
+            *CONTEXT
+                .lock()
+                .map_err(|_| ElevationError::AlreadyInitialized)? =
+                Some(read_context(&reference, &home, &args)?);
+        }
+        return Ok(args);
     }
     Ok(args)
+}
+
+pub(super) fn take_context() -> Result<Option<serde_json::Value>> {
+    Ok(CONTEXT
+        .lock()
+        .map_err(|_| ElevationError::AlreadyInitialized)?
+        .take())
 }
 
 pub fn is_elevated_child() -> bool {
@@ -39,12 +59,21 @@ pub fn is_privilege_error(error: &AppError) -> bool {
         .is_some_and(|source| source.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD as i32))
 }
 
-pub(super) fn run_as_admin(args: &[OsString]) -> Result<()> {
+pub(super) fn run_as_admin(args: &[OsString], context: Option<&serde_json::Value>) -> Result<()> {
     let executable = env::current_exe().map_err(AppError::Io)?;
-    let prefix = [
-        OsString::from(ELEVATED_HOME_ARG),
-        home::dir()?.into_os_string(),
-    ];
+    let home = home::dir()?;
+    let context = context
+        .map(|context| ContextFile::new(&home, args, context))
+        .transpose()?;
+    let mut prefix = vec![OsString::from(ELEVATED_HOME_ARG), home.into_os_string()];
+    if let Some(context) = &context {
+        let reference = context.reference();
+        prefix.extend([
+            ELEVATED_CONTEXT_ARG.into(),
+            reference.path.into_os_string(),
+            reference.digest.into(),
+        ]);
+    }
     let parameters = prefix
         .iter()
         .chain(args)
@@ -73,10 +102,14 @@ pub(super) fn run_as_admin(args: &[OsString]) -> Result<()> {
     let mut exit_code = 1;
     let read_exit_code = unsafe { GetExitCodeProcess(info.hProcess, &mut exit_code) };
     unsafe { CloseHandle(info.hProcess) };
-    if waited == WAIT_OBJECT_0 && read_exit_code != 0 && exit_code == 0 {
-        Ok(())
-    } else {
-        Err(ElevationError::Failed.into())
+    if waited != WAIT_OBJECT_0 || read_exit_code == 0 {
+        return Err(ElevationError::Failed.into());
+    }
+    match exit_code {
+        0 => Ok(()),
+        3 => Err(ElevationError::ReplayMismatch.into()),
+        4 => Err(ElevationError::InvalidContext("child rejected the retry context".into()).into()),
+        _ => Err(ElevationError::Failed.into()),
     }
 }
 

@@ -15,6 +15,7 @@ struct Retry {
     operation: Expr,
     args: ExprArray,
     flags: Vec<(Expr, Expr)>,
+    context: Option<Expr>,
 }
 
 pub(crate) struct Command {
@@ -33,6 +34,7 @@ impl Parse for Command {
         let mut operation = None;
         let mut args = None;
         let mut flags = None;
+        let mut context = None;
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             input.parse::<Token![=]>()?;
@@ -40,6 +42,7 @@ impl Parse for Command {
                 "retry" if operation.is_none() => operation = Some(input.parse::<Expr>()?),
                 "args" if args.is_none() => args = Some(input.parse::<ExprArray>()?),
                 "flags" if flags.is_none() => flags = Some(input.parse::<ExprArray>()?),
+                "context" if context.is_none() => context = Some(input.parse::<Expr>()?),
                 _ => {
                     return Err(syn::Error::new_spanned(
                         key,
@@ -83,6 +86,7 @@ impl Parse for Command {
                 operation,
                 args,
                 flags,
+                context,
             }),
         })
     }
@@ -132,13 +136,21 @@ impl Retry {
                 }
             }
         });
+        let (runner, context) = match &self.context {
+            Some(context) => (
+                quote!(crate::elevate::run_with_context),
+                quote!(|| Ok(Some(#context)),),
+            ),
+            None => (quote!(crate::elevate::run), quote!()),
+        };
         parse_quote! {
-            crate::elevate::run(
+            #runner(
                 || {
                     let #mutable #variable = vec![#(#args),*];
                     #(#flags)*
                     Ok(#variable)
                 },
+                #context
                 || #operation,
             )
         }
@@ -196,7 +208,7 @@ pub(crate) fn expand(command: Command, mut function: ItemFn) -> syn::Result<Toke
             ));
         };
         let argument = format_ident!("__cprof_arg_{index}");
-        input.pat = Box::new(parse_quote!(#argument));
+        *input.pat = parse_quote!(#argument);
         arguments.push(argument);
     }
     Ok(quote! {
@@ -211,66 +223,4 @@ pub(crate) fn expand(command: Command, mut function: ItemFn) -> syn::Result<Toke
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Command, expand};
-
-    #[test]
-    fn requires_an_explicit_retry_policy() {
-        assert!(
-            syn::parse_str::<Command>("no_retry")
-                .unwrap()
-                .retry
-                .is_none()
-        );
-        for options in [
-            "",
-            "no_retry, args = [\"test\"]",
-            "retry = update",
-            "retry = update, args = []",
-        ] {
-            assert!(syn::parse_str::<Command>(options).is_err(), "{options}");
-        }
-    }
-
-    #[test]
-    fn rejects_missing_or_ambiguous_retry_operations() {
-        for function in [
-            "fn run() { other(); }",
-            "fn run() { update(); update(); }",
-            "fn run() { fn nested() { update(); } }",
-        ] {
-            let options = syn::parse_str("retry = update, args = [\"test\"]").unwrap();
-            let function = syn::parse_str(function).unwrap();
-            let error = expand(options, function).unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                "retry must match exactly one operation in run"
-            );
-        }
-    }
-
-    #[test]
-    fn generates_a_checked_dispatch_entry() {
-        let options = syn::parse_str::<Command>("no_retry").unwrap();
-        let function = syn::parse_quote! {
-            pub fn run() -> Result<()> { Ok(()) }
-        };
-        let expanded = expand(options, function).unwrap().to_string();
-        assert!(expanded.contains("pub fn run () -> Result < () >"));
-        assert!(expanded.contains("__cprof_dispatch_run () -> crate :: error :: Result < () >"));
-        assert!(expanded.contains("let result : crate :: error :: Result < () > = run ()"));
-    }
-
-    #[test]
-    fn accepts_a_result_alias_for_the_compiler_to_check() {
-        let options = syn::parse_str::<Command>("no_retry").unwrap();
-        let function = syn::parse_quote! {
-            pub fn run(value: &str) -> CommandResult<()> { Ok(()) }
-        };
-        let expanded = expand(options, function).unwrap().to_string();
-        assert!(expanded.contains("pub fn run (value : & str) -> CommandResult < () >"));
-        assert!(
-            expanded.contains("let result : crate :: error :: Result < () > = run (__cprof_arg_0)")
-        );
-    }
-}
+mod tests;

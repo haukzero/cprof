@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
@@ -122,7 +124,6 @@ fn script(directory: &Path, name: &str, unix: &str, windows: &str) -> PathBuf {
     fs::write(&path, content).unwrap();
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
     }
     path
