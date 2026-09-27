@@ -104,16 +104,16 @@ impl UnpackReport {
     }
 }
 
-/// Restore every packaged target, or only `target_id` when supplied.
-pub(crate) fn restore(
+/// Prepare every packaged target, or only `target_id` when supplied.
+pub(crate) fn prepare(
     targets: &TargetRepository,
     path: &Path,
     target_id: Option<&str>,
     mode: UnpackMode,
     interaction: &mut impl UnpackInteraction,
-) -> Result<UnpackReport> {
+) -> Result<UnpackPlan> {
     let packages = selected_packages(targets, path, target_id)?;
-    UnpackPlan::prepare(targets, packages, target_id, mode, interaction)?.commit()
+    UnpackPlan::prepare(targets, packages, target_id, mode, interaction)
 }
 
 /// Prepare an unpack without staging or committing any filesystem changes.
@@ -130,7 +130,7 @@ pub(crate) fn preview(
 
 // Keep validated profiles and the corresponding configuration change together
 // so they can only be committed as a single transaction.
-struct UnpackPlan {
+pub(crate) struct UnpackPlan {
     targets: Vec<TargetPlan>,
     target_configs: Option<BTreeMap<String, ExternalTargetConfig>>,
     target_config_changes: Vec<UnpackChange>,
@@ -189,7 +189,7 @@ impl UnpackPlan {
         })
     }
 
-    fn commit(self) -> Result<UnpackReport> {
+    pub(crate) fn commit(&self) -> Result<()> {
         PathTransaction::prepare(|transaction| {
             for plan in &self.targets {
                 plan.stage(transaction)?;
@@ -199,11 +199,10 @@ impl UnpackPlan {
             }
             Ok(())
         })?
-        .commit()?;
-        Ok(self.into_report())
+        .commit()
     }
 
-    fn into_report(self) -> UnpackReport {
+    pub(crate) fn into_report(self) -> UnpackReport {
         UnpackReport {
             targets: self
                 .targets

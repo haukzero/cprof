@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::path::{Path, absolute};
 
 use crate::commands::support::unpack::{Interactive, Preview, render_preview, render_restore};
+use crate::elevate;
 use crate::error::Result;
 use crate::package::{self, unpack};
 use crate::targets::TargetRepository;
@@ -27,13 +28,29 @@ pub fn run(
         return Ok(());
     }
     let mut interaction = Interactive::new(force);
-    let report = unpack::restore(
+    let plan = unpack::prepare(
         targets,
         Path::new(&path),
         None,
         unpack::UnpackMode::from(mirror),
         &mut interaction,
     )?;
+    let mut args = vec![
+        "unpack".into(),
+        "--path".into(),
+        absolute(&path)?.into_os_string(),
+    ];
+    if force {
+        args.push("--force".into());
+    }
+    if mirror {
+        args.push("--mirror".into());
+    }
+    elevate::run(&args, || plan.commit())?;
+    if elevate::is_elevated_child() {
+        return Ok(());
+    }
+    let report = plan.into_report();
     render_restore(&report);
     println!();
     style::success(format!(

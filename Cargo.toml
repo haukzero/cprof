@@ -28,6 +28,7 @@ zip = { version = "8.6.0", features = ["deflate"], default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
+test-macros = { path = "tests/macros" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [

@@ -5,13 +5,9 @@ use crate::support::{
     AUTH, CONFIG, TestHome, assert_originals, can_symlink, symlink, unmanaged_codex,
 };
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn codex_reports_partial_and_mixed_links() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     let first = home.codex_profile("first");
     home.codex_profile("second");
@@ -100,13 +96,9 @@ fn switch_preserves_unmanaged_files_unless_forced() {
     assert_eq!(home.succeeds(&["codex", "which"]), "work\n");
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn switch_removes_optional_links_and_preserves_all_entries_on_conflict() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     home.set_config(
         "[demo]\n[[demo.resources]]\nfilename = 'settings'\nactive_path = '.demo/settings'\n\
@@ -143,13 +135,9 @@ fn switch_removes_optional_links_and_preserves_all_entries_on_conflict() {
     assert_eq!(fs::read_dir(home.path.join(".demo")).unwrap().count(), 1);
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn relative_managed_links_are_recognized_including_dangling_resources() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = unmanaged_codex();
     home.succeeds(&["codex", "adopt", "local"]);
     let relative: PathBuf = ["..", ".cprof", "profiles", "codex", "local"]
@@ -175,13 +163,9 @@ fn relative_managed_links_are_recognized_including_dangling_resources() {
     assert!(!home.path.join(".codex/auth.json").is_symlink());
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn link_parent_aliases_follow_native_path_resolution() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = unmanaged_codex();
     home.succeeds(&["codex", "adopt", "local"]);
     let outside = home.path.join("outside");

@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::support::{AUTH, CONFIG, TestHome, can_symlink, unmanaged_codex};
+use crate::support::{AUTH, CONFIG, TestHome, unmanaged_codex};
 
 #[test]
 fn profile_counts_include_incomplete_profiles() {
@@ -36,13 +36,9 @@ fn profile_counts_include_incomplete_profiles() {
     );
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn non_interactive_remove_conflict_fails_before_deleting_any_profiles() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     home.claude_profile("active");
     home.claude_profile("inactive");
@@ -57,13 +53,9 @@ fn non_interactive_remove_conflict_fails_before_deleting_any_profiles() {
     assert!(home.path.join(".cprof/profiles/claude/inactive").is_dir());
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn forced_remove_deletes_an_active_profile_and_its_link() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     home.claude_profile("active");
 
@@ -75,13 +67,9 @@ fn forced_remove_deletes_an_active_profile_and_its_link() {
     assert!(!home.path.join(".claude/settings.json").exists());
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn rename_updates_an_active_profile_and_its_links() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     home.claude_profile("old");
 

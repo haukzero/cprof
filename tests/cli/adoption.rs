@@ -62,13 +62,9 @@ fn adopts_codex_bytes_permissions_and_both_active_entries() {
     assert!(!home.path.join(".cprof/profiles/codex/another").exists());
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn adopts_external_links_without_modifying_their_sources() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = unmanaged_codex();
     let outside = tempfile::tempdir().unwrap();
     for (filename, content) in [("config.toml", CONFIG), ("auth.json", AUTH)] {
@@ -92,13 +88,9 @@ fn adopts_external_links_without_modifying_their_sources() {
     );
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn adopts_a_partially_managed_configuration_as_a_whole() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = unmanaged_codex();
     let old = home.path.join(".cprof/profiles/codex/old");
     fs::create_dir_all(&old).unwrap();
@@ -175,13 +167,9 @@ fn adoption_rejects_existing_names_and_noninteractive_missing_names() {
     );
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn adopts_claude_and_external_targets_without_filling_optional_resources() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     fs::create_dir(home.path.join(".claude")).unwrap();
     fs::write(home.path.join(".claude/settings.json"), "{}\n").unwrap();

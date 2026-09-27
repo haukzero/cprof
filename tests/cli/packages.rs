@@ -30,6 +30,7 @@ fn non_interactive_unpack_ignores_identical_profile_and_restores_changes() {
 }
 
 #[test]
+#[cfg(unix)]
 fn unpack_identical_profile_is_silent_and_unchanged() {
     let source = TestHome::new();
     source.claude_profile("same");
@@ -51,6 +52,7 @@ fn unpack_identical_profile_is_silent_and_unchanged() {
 }
 
 #[test]
+#[cfg(unix)]
 fn root_unpack_omits_targets_without_changes() {
     let source = TestHome::new();
     source.claude_profile("same");
@@ -70,6 +72,7 @@ fn root_unpack_omits_targets_without_changes() {
 }
 
 #[test]
+#[cfg(unix)]
 fn root_unpack_groups_profiles_under_their_targets() {
     let source = TestHome::new();
     source.claude_profile("shared");
@@ -138,6 +141,7 @@ fn target_unpack_dry_run_reports_changes_without_writing() {
     assert!(!destination.path.join(".cprof/profiles/claude/new").exists());
 }
 
+#[test_macros::windows_elevation]
 #[test]
 fn mirror_unpack_replaces_profile_names_and_active_configuration() {
     let source = TestHome::new();

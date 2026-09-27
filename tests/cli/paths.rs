@@ -196,13 +196,9 @@ fn different_resource_keys_cannot_share_files_or_active_paths() {
     }
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn parent_symlink_aliases_cannot_hide_duplicate_active_paths() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     fs::create_dir(home.path.join(".demo")).unwrap();
     symlink(home.path.join(".demo"), home.path.join(".alias")).unwrap();
@@ -328,13 +324,9 @@ fn absolute_active_path_survives_activation_and_package_roundtrip() {
     );
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn forced_switch_rejects_parent_symlink_escape_with_missing_descendants() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     let outside = tempfile::tempdir().unwrap();
     symlink(outside.path(), home.path.join("redirect")).unwrap();
@@ -349,13 +341,9 @@ fn forced_switch_rejects_parent_symlink_escape_with_missing_descendants() {
     assert!(!home.path.join(".cprof/profiles").exists());
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn repository_and_config_symlinks_cannot_escape_home() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     for link_path in [".cprof", ".cprof/extra-target.toml"] {
         let home = TestHome::new();
         let outside = tempfile::tempdir().unwrap();
@@ -375,13 +363,9 @@ fn repository_and_config_symlinks_cannot_escape_home() {
     }
 }
 
+#[test_macros::windows_elevation]
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "requires symbolic-link privileges; run with --include-ignored"
-)]
 fn stored_resources_cannot_be_symlink_aliases() {
-    assert!(can_symlink(), "symbolic-link privileges are required");
     let home = TestHome::new();
     let outside = tempfile::tempdir().unwrap();
     let source = outside.path().join("settings.json");

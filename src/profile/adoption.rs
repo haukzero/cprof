@@ -160,7 +160,6 @@ fn commit_adoption(transaction: PathTransaction, sources: &[ActiveResource]) -> 
 
 #[cfg(test)]
 mod tests {
-    use crate::elevate;
     use crate::error::FormatError;
     use crate::format::Format;
 
@@ -194,21 +193,6 @@ mod tests {
                 if invalid == path && matches!(*source, AppError::Format(FormatError::Json(_)))));
     }
 
-    fn can_create_links(directory: &Path) -> bool {
-        let link = directory.join("probe-link");
-        match filesystem::create_symlink(&directory.join("missing"), &link) {
-            Ok(()) => {
-                fs::remove_file(link).unwrap();
-                true
-            }
-            Err(error) if elevate::is_privilege_error(&error) => {
-                eprintln!("Skipping symlink test: Windows Developer Mode or elevation required");
-                false
-            }
-            Err(error) => panic!("{error}"),
-        }
-    }
-
     fn sources(directory: &Path) -> Vec<ActiveResource> {
         let active = directory.join("active");
         fs::create_dir(&active).unwrap();
@@ -232,12 +216,10 @@ mod tests {
         }
     }
 
+    #[test_macros::windows_elevation]
     #[test]
     fn adopts_readonly_files_and_relative_external_links() {
         let directory = tempfile::tempdir().unwrap();
-        if !can_create_links(directory.path()) {
-            return;
-        }
         let mut sources = sources(directory.path());
         let external = directory.path().join("external-auth");
         fs::write(&external, "auth").unwrap();
@@ -279,12 +261,10 @@ mod tests {
         assert_no_staging(directory.path());
     }
 
+    #[test_macros::windows_elevation]
     #[test]
     fn a_later_link_failure_rolls_back_profile_and_original_relative_link() {
         let directory = tempfile::tempdir().unwrap();
-        if !can_create_links(directory.path()) {
-            return;
-        }
         let mut sources = sources(directory.path());
         fs::write(directory.path().join("external-config"), "config").unwrap();
         fs::remove_file(&sources[0].path).unwrap();
@@ -306,12 +286,10 @@ mod tests {
         assert_no_staging(directory.path());
     }
 
+    #[test_macros::windows_elevation]
     #[test]
     fn changes_after_staging_cancel_without_overwriting_current_configuration() {
         let directory = tempfile::tempdir().unwrap();
-        if !can_create_links(directory.path()) {
-            return;
-        }
         let sources = sources(directory.path());
         let destination = directory.path().join("profile");
         let transaction = stage_adoption(&destination, &sources).unwrap();
@@ -328,12 +306,10 @@ mod tests {
         assert_no_staging(directory.path());
     }
 
+    #[test_macros::windows_elevation]
     #[test]
     fn optional_resources_appearing_during_adoption_are_preserved() {
         let directory = tempfile::tempdir().unwrap();
-        if !can_create_links(directory.path()) {
-            return;
-        }
         let mut sources = sources(directory.path());
         let optional = directory.path().join("active/optional");
         sources.push(ActiveResource::read(&spec("optional", false), optional.clone()).unwrap());
@@ -349,12 +325,10 @@ mod tests {
         assert_no_staging(directory.path());
     }
 
+    #[test_macros::windows_elevation]
     #[test]
     fn a_copy_failure_cleans_up_already_staged_links() {
         let directory = tempfile::tempdir().unwrap();
-        if !can_create_links(directory.path()) {
-            return;
-        }
         let sources = sources(directory.path());
         // The first source is copied and linked successfully before this fails.
         fs::remove_file(&sources[1].path).unwrap();
@@ -366,12 +340,10 @@ mod tests {
         assert_no_staging(directory.path());
     }
 
+    #[test_macros::windows_elevation]
     #[test]
     fn retargeted_links_are_detected_even_when_contents_match() {
         let directory = tempfile::tempdir().unwrap();
-        if !can_create_links(directory.path()) {
-            return;
-        }
         let sources = sources(directory.path());
         let destination = directory.path().join("profile");
         let transaction = stage_adoption(&destination, &sources).unwrap();

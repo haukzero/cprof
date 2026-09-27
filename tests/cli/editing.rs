@@ -130,6 +130,7 @@ fn invalid_extra_target_edits_preserve_existing_or_absent_config() {
     }
 }
 
+#[test_macros::windows_elevation]
 #[test]
 fn profile_create_resumes_an_interrupted_draft() {
     let home = TestHome::new();
