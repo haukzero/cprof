@@ -4,10 +4,9 @@ use std::iter::once;
 use std::process::ExitCode;
 
 use clap::Parser;
-use clap::error::ErrorKind;
 
-use cprof::cli::{self, Cli, RootCommand, TargetCli, TargetCommand};
-use cprof::commands::{root, target};
+use cprof::cli::{self, Cli};
+use cprof::commands;
 use cprof::elevate;
 use cprof::error::{AppError, Result};
 use cprof::targets::TargetRepository;
@@ -48,101 +47,5 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    run_root_command(Cli::try_parse_from(
-        once(OsString::from("cprof")).chain(args),
-    )?)
-}
-
-#[cprof_macros::command_dispatch]
-fn run_root_command(cli: cli::Cli) -> Result<()> {
-    match cli.command {
-        RootCommand::Claude(args) => run_target_command("claude", args.command)?,
-        RootCommand::Codex(args) => run_target_command("codex", args.command)?,
-        RootCommand::Pack(args) => {
-            let targets = TargetRepository::load()?;
-            root::pack::run(&targets, args.options.save, args.select)?;
-        }
-        RootCommand::Unpack(args) => {
-            let targets = TargetRepository::load()?;
-            root::unpack::run(&targets, args.path, args.force, args.dry_run, args.mirror)?;
-        }
-        RootCommand::Clean(args) => {
-            let targets = TargetRepository::load()?;
-            root::clean::run(&targets, args.force, args.extra_toml)?;
-        }
-        RootCommand::EditExtra(args) => root::edit_extra::run(args.editor)?,
-        RootCommand::Targets(args) => {
-            let targets = TargetRepository::load()?;
-            root::targets::run(&targets, args.json)?;
-        }
-        RootCommand::External(args) => {
-            let target_id = args.first().cloned().ok_or_else(|| {
-                clap::Error::raw(ErrorKind::MissingSubcommand, "Missing target command")
-            })?;
-            let targets = TargetRepository::load()?;
-            targets.get(&target_id)?;
-            let target_command = parse_target_command(&target_id, args.into_iter().skip(1))?;
-            run_target_command_with_repository(&targets, &target_id, target_command)?;
-        }
-    }
-    Ok(())
-}
-
-fn parse_target_command(
-    target_id: &str,
-    args: impl IntoIterator<Item = String>,
-) -> Result<TargetCommand> {
-    let command_name = format!("cprof {target_id}");
-    match TargetCli::try_parse_from(once(command_name).chain(args)) {
-        Ok(cli) => Ok(cli.command),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn run_target_command(target_id: &str, command: TargetCommand) -> Result<()> {
-    let targets = TargetRepository::load()?;
-    run_target_command_with_repository(&targets, target_id, command)?;
-    Ok(())
-}
-
-#[cprof_macros::command_dispatch]
-fn run_target_command_with_repository(
-    targets: &TargetRepository,
-    target_id: &str,
-    command: TargetCommand,
-) -> Result<()> {
-    let target = targets.get(target_id)?;
-    match command {
-        TargetCommand::Dir => target::dir::run(&target),
-        TargetCommand::List => target::list::run(&target),
-        TargetCommand::Which => target::which::run(&target),
-        TargetCommand::Num => target::num::run(&target),
-        TargetCommand::Create {
-            name,
-            copy_from,
-            editor,
-        } => target::create::run(&target, name, copy_from, editor),
-        TargetCommand::Adopt { name } => target::adopt::run(&target, name),
-        TargetCommand::Edit {
-            name,
-            filename,
-            editor,
-        } => target::edit::run(&target, name, filename, editor),
-        TargetCommand::Remove { names, force } => target::remove::run(&target, names, force),
-        TargetCommand::Rename { old_name, new_name } => {
-            target::rename::run(&target, old_name, new_name)
-        }
-        TargetCommand::Switch { name, force } => target::switch::run(&target, name, force),
-        TargetCommand::Clean { force } => target::clean::run(&target, force),
-        TargetCommand::Where { name, filename } => target::where_::run(&target, name, filename),
-        TargetCommand::Pack(args) => target::pack::run(targets, &target, args.save),
-        TargetCommand::Unpack(args) => target::unpack::run(
-            targets,
-            &target,
-            args.path,
-            args.force,
-            args.dry_run,
-            args.mirror,
-        ),
-    }
+    commands::dispatch_root(Cli::try_parse_from(once(OsString::from("cprof")).chain(args))?.command)
 }

@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    Expr, ExprArray, Ident, ItemFn, Member, Path, PathArguments, Token,
+    Expr, ExprArray, Ident, ItemFn, Member, Path, PathArguments, ReturnType, Token,
     parse::{Parse, ParseStream},
     parse_quote,
     visit_mut::{self, VisitMut},
@@ -184,11 +184,23 @@ pub(crate) fn expand(command: Command, mut function: ItemFn) -> syn::Result<Toke
             ));
         }
     }
+    let original_output = match &function.sig.output {
+        ReturnType::Type(_, ty) => ty.clone(),
+        ReturnType::Default => {
+            return Err(syn::Error::new_spanned(
+                &function.sig,
+                "command run must return Result<()> for dispatch",
+            ));
+        }
+    };
+    let original = function.block;
+    function.sig.output = parse_quote!(-> crate::error::Result<crate::commands::CommandCompletion>);
+    function.block = Box::new(parse_quote!({
+        let result: #original_output = (|| #original)();
+        result.map(|()| crate::commands::CommandCompletion::new())
+    }));
     Ok(quote! {
         #function
-
-        #[doc(hidden)]
-        pub const COMMAND_MARKER: () = ();
     })
 }
 
@@ -229,5 +241,17 @@ mod tests {
                 "retry must match exactly one operation in run"
             );
         }
+    }
+
+    #[test]
+    fn run_returns_a_dispatch_completion() {
+        let options = syn::parse_str::<Command>("no_retry").unwrap();
+        let function = syn::parse_quote! {
+            pub fn run() -> Result<()> { Ok(()) }
+        };
+        let expanded = expand(options, function).unwrap().to_string();
+        assert!(expanded.contains("Result < crate :: commands :: CommandCompletion >"));
+        assert!(expanded.contains("let result : Result < () >"));
+        assert!(!expanded.contains("COMMAND_MARKER"));
     }
 }

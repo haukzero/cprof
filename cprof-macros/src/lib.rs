@@ -16,8 +16,8 @@ mod windows_elevation;
 ///
 /// Replay arguments are built only after a recoverable privilege error. The
 /// selected call returns `Result<Option<T>>`: `Some(T)` on local success, or
-/// `None` when an elevated child completes the command. A hidden marker is
-/// emitted for dispatch checks.
+/// `None` when an elevated child completes the command. The resulting `run`
+/// function returns `Result<CommandCompletion>` for dispatch type checking.
 #[proc_macro_attribute]
 pub fn command(args: TokenStream, item: TokenStream) -> TokenStream {
     let options = parse_macro_input!(args as command::Command);
@@ -27,23 +27,8 @@ pub fn command(args: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Check that every dispatched command uses `#[command(...)]`.
-///
-/// Apply to functions dispatching `root::<module>::run(...)` or
-/// `target::<module>::run(...)`. The check has no runtime effect.
-///
-/// ```compile_fail
-/// mod root {
-///     pub mod cmd_example {
-///         pub fn run() {}
-///     }
-/// }
-/// #[cprof_macros::command_dispatch]
-/// fn dispatch() {
-///     root::cmd_example::run();
-/// }
-/// fn main() { dispatch(); }
-/// ```
+/// Require calls to registered command `run` functions to return the type
+/// produced by `#[command(...)]`. A plain `Result<()>` fails to compile.
 #[proc_macro_attribute]
 pub fn command_dispatch(args: TokenStream, item: TokenStream) -> TokenStream {
     let function = parse_macro_input!(item as ItemFn);
