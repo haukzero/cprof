@@ -7,13 +7,13 @@
 ```bash
 git clone https://github.com/haukzero/cprof.git
 cd cprof
-cargo install --path .
+cargo install --path ./cprof
 ```
 
 或
 
 ```bash
-cargo install --git https://github.com/haukzero/cprof.git
+cargo install --git https://github.com/haukzero/cprof.git cprof
 ```
 
 ## 命令
@@ -64,7 +64,7 @@ cargo install --git https://github.com/haukzero/cprof.git
 
 ### 外部 target
 
-允许在 `~/.cprof/extra-target.toml` 中配置的定义的额外 target. 配置文件使用顶层表名定义 target, 格式参考 [`examples/extra-target.toml`](examples/extra-target.toml). 命令中的 target 默认使用表名; 声明 `id` 后改用该 id: 
+允许在 `~/.cprof/extra-target.toml` 中配置的定义的额外 target. 配置文件使用顶层表名定义 target, 格式参考 [`cprof/examples/extra-target.toml`](cprof/examples/extra-target.toml). 命令中的 target 默认使用表名; 声明 `id` 后改用该 id:
 
 ```toml
 [example]

@@ -158,6 +158,7 @@ version = "0.2.7"
 dependencies = [
  "clap",
  "colored",
+ "cprof-macros",
  "dialoguer",
  "dirs",
  "indexmap",
@@ -166,12 +167,20 @@ dependencies = [
  "sha2",
  "shell-words",
  "tempfile",
- "test-macros",
  "thiserror",
  "toml",
  "unicode-width",
  "windows-sys",
  "zip",
+]
+
+[[package]]
+name = "cprof-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -560,10 +569,6 @@ dependencies = [
  "rustix",
  "windows-sys",
 ]
-
-[[package]]
-name = "test-macros"
-version = "0.1.0"
 
 [[package]]
 name = "thiserror"
