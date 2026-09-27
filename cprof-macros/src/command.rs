@@ -188,7 +188,7 @@ pub(crate) fn expand(command: Command, mut function: ItemFn) -> syn::Result<Toke
         #function
 
         #[doc(hidden)]
-        pub(crate) const COMMAND_MARKER: () = ();
+        pub const COMMAND_MARKER: () = ();
     })
 }
 

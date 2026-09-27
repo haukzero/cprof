@@ -48,7 +48,13 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    let cli = Cli::try_parse_from(once(OsString::from("cprof")).chain(args))?;
+    run_root_command(Cli::try_parse_from(
+        once(OsString::from("cprof")).chain(args),
+    )?)
+}
+
+#[cprof_macros::command_dispatch]
+fn run_root_command(cli: cli::Cli) -> Result<()> {
     match cli.command {
         RootCommand::Claude(args) => run_target_command("claude", args.command)?,
         RootCommand::Codex(args) => run_target_command("codex", args.command)?,
@@ -99,6 +105,7 @@ fn run_target_command(target_id: &str, command: TargetCommand) -> Result<()> {
     Ok(())
 }
 
+#[cprof_macros::command_dispatch]
 fn run_target_command_with_repository(
     targets: &TargetRepository,
     target_id: &str,
