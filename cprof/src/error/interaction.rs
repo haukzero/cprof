@@ -4,7 +4,7 @@ pub enum InteractionError {
     #[error("Interactive input required but no interactive terminal is available")]
     InputRequired,
 
-    #[error("Selection cancelled")]
+    #[error("Interaction cancelled")]
     Cancelled,
 
     #[error("Interactive prompt failed: {0}")]

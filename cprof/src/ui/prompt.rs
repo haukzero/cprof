@@ -1,33 +1,19 @@
-use std::io::{self, IsTerminal};
+use dialoguer::console::Key;
+use dialoguer::{Confirm, FuzzySelect};
 
-use dialoguer::{Confirm, FuzzySelect, Input};
-
-use crate::error::{InteractionError, ProfileError, Result};
+use crate::error::{ProfileError, Result};
 use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 
-pub(super) fn require_terminal() -> Result<()> {
-    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
-        return Err(InteractionError::InputRequired.into());
-    }
-    Ok(())
-}
-
-fn interact<T>(interaction: impl FnOnce() -> dialoguer::Result<T>) -> Result<T> {
-    require_terminal()?;
-    Ok(interaction().map_err(InteractionError::from)?)
-}
-
-pub(crate) fn input(prompt: &str) -> Result<String> {
-    interact(|| Input::new().with_prompt(prompt).interact_text())
-}
+pub(crate) use super::interaction::input;
+use super::interaction::interact;
 
 fn select_one(prompt: &str, items: &[String]) -> Result<usize> {
-    interact(|| {
+    interact(prompt, &[], |prompt| {
         FuzzySelect::new()
-            .with_prompt(prompt)
+            .with_prompt(&prompt.text)
             .items(items)
-            .interact()
+            .interact_opt()
     })
 }
 
@@ -82,5 +68,10 @@ pub(crate) fn select_copy_source(target: &TargetSpec) -> Result<Option<String>> 
 }
 
 pub(crate) fn confirm(prompt: &str) -> Result<bool> {
-    interact(|| Confirm::new().with_prompt(prompt).default(false).interact())
+    interact(prompt, &[Key::Char('q')], |prompt| {
+        Confirm::new()
+            .with_prompt(&prompt.text)
+            .default(false)
+            .interact_opt()
+    })
 }

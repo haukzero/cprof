@@ -4,10 +4,10 @@ use std::io;
 
 use dialoguer::console::{Key, Term, truncate_str};
 
-use crate::error::{InteractionError, Result};
+use crate::error::Result;
 
 use super::{
-    prompt,
+    interaction,
     style::{heading, label},
 };
 
@@ -22,14 +22,15 @@ pub(crate) use style::TreeStyle;
 
 /// Return checked leaf indices in display order. The tree starts unchecked.
 pub(crate) fn select(prompt: &str, root: Item, style: TreeStyle) -> Result<Vec<usize>> {
-    prompt::require_terminal()?;
-    let mut selection = Selection::new(root, style);
-    interact(prompt, &mut selection)
-        .map_err(|error| InteractionError::from(dialoguer::Error::from(error)))?
-        .ok_or_else(|| InteractionError::Cancelled.into())
+    interaction::interact(prompt, &[Key::Char('q'), Key::CtrlC], |prompt| {
+        interact(prompt, &mut Selection::new(root, style)).map_err(Into::into)
+    })
 }
 
-fn interact(prompt: &str, selection: &mut Selection) -> io::Result<Option<Vec<usize>>> {
+fn interact(
+    prompt: &interaction::Prompt,
+    selection: &mut Selection,
+) -> io::Result<Option<Vec<usize>>> {
     let mut screen = Screen {
         term: Term::buffered_stderr(),
         lines: 0,
@@ -44,11 +45,8 @@ fn interact(prompt: &str, selection: &mut Selection) -> io::Result<Option<Vec<us
         let width = usize::from(width).saturating_sub(1);
         let start = cursor / capacity * capacity;
         let end = (start + capacity).min(selection.rows.len());
-        screen.line(&heading(prompt).to_string(), width)?;
-        screen.line(
-            "j/k move | Space toggle | a all | Enter confirm | q/Esc cancel",
-            width,
-        )?;
+        screen.line(&heading(&prompt.text).to_string(), width)?;
+        screen.line("j/k move | Space toggle | a all | Enter confirm", width)?;
         for index in start..end {
             let marker = match selection.check(index) {
                 Check::Empty | Check::None => "[ ]",
@@ -70,7 +68,7 @@ fn interact(prompt: &str, selection: &mut Selection) -> io::Result<Option<Vec<us
         }
         let selected = selection.selected();
         let status = if empty_submission && selected.is_empty() {
-            "Select at least one item, or press Esc to cancel".to_string()
+            "Select at least one item".to_string()
         } else {
             let pages = selection.rows.len().div_ceil(capacity);
             let paging = if pages > 1 {
@@ -85,7 +83,10 @@ fn interact(prompt: &str, selection: &mut Selection) -> io::Result<Option<Vec<us
         };
         screen.line(&status, width)?;
         screen.term.flush()?;
-        match screen.term.read_key_raw()? {
+        let Some(key) = prompt.read_key(&screen.term)? else {
+            return Ok(None);
+        };
+        match key {
             Key::ArrowDown | Key::Tab | Key::Char('j') => {
                 cursor = (cursor + 1) % selection.rows.len();
             }
@@ -96,7 +97,6 @@ fn interact(prompt: &str, selection: &mut Selection) -> io::Result<Option<Vec<us
             Key::End => cursor = selection.rows.len() - 1,
             Key::Char(' ') => selection.toggle(cursor),
             Key::Char('a') => selection.toggle(0),
-            Key::Escape | Key::Char('q') | Key::CtrlC => return Ok(None),
             Key::Enter if !selected.is_empty() => return Ok(Some(selected)),
             Key::Enter => empty_submission = true,
             _ => {}
