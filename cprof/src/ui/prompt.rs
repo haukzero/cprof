@@ -1,16 +1,20 @@
 use std::io::{self, IsTerminal};
-use std::sync::Arc;
 
-use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
+use dialoguer::{Confirm, FuzzySelect, Input};
 
 use crate::error::{InteractionError, ProfileError, Result};
 use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 
-fn interact<T>(interaction: impl FnOnce() -> dialoguer::Result<T>) -> Result<T> {
+pub(super) fn require_terminal() -> Result<()> {
     if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
         return Err(InteractionError::InputRequired.into());
     }
+    Ok(())
+}
+
+fn interact<T>(interaction: impl FnOnce() -> dialoguer::Result<T>) -> Result<T> {
+    require_terminal()?;
     Ok(interaction().map_err(InteractionError::from)?)
 }
 
@@ -25,28 +29,6 @@ fn select_one(prompt: &str, items: &[String]) -> Result<usize> {
             .items(items)
             .interact()
     })
-}
-
-fn select_many(prompt: &str, items: &[String]) -> Result<Vec<usize>> {
-    interact(|| {
-        MultiSelect::new()
-            .with_prompt(prompt)
-            .items(items)
-            .interact()
-    })
-}
-
-pub(crate) fn select_targets(targets: &[Arc<TargetSpec>]) -> Result<Vec<Arc<TargetSpec>>> {
-    let labels = targets
-        .iter()
-        .map(|target| target.id.clone())
-        .collect::<Vec<_>>();
-    Ok(
-        select_many("Select targets to pack (space to select/deselect)", &labels)?
-            .into_iter()
-            .map(|index| Arc::clone(&targets[index]))
-            .collect(),
-    )
 }
 
 pub(crate) fn select_profile(

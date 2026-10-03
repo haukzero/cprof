@@ -4,6 +4,9 @@ pub enum InteractionError {
     #[error("Interactive input required but no interactive terminal is available")]
     InputRequired,
 
+    #[error("Selection cancelled")]
+    Cancelled,
+
     #[error("Interactive prompt failed: {0}")]
     Prompt(#[from] dialoguer::Error),
 }

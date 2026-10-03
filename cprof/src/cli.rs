@@ -88,14 +88,26 @@ pub struct PackOptions {
     /// Output file path (default: ./cprof.pkg)
     #[arg(long, value_name = "PATH")]
     pub save: Option<String>,
+    /// Draw the selection tree with ASCII characters (also enabled by CPROF_ASCII=1)
+    #[arg(long)]
+    pub ascii: bool,
 }
 
 #[derive(Args)]
 pub struct RootPackArgs {
     #[command(flatten)]
     pub options: PackOptions,
-    /// Select target(s) to pack
-    #[arg(long, value_name = "TARGET", num_args = 0..=1)]
+    /// Select a target or target/profile (repeatable; omit value for a selection tree)
+    #[arg(long, value_name = "TARGET[/PROFILE]", num_args = 0..=1)]
+    pub select: Option<Vec<String>>,
+}
+
+#[derive(Args)]
+pub struct TargetPackArgs {
+    #[command(flatten)]
+    pub options: PackOptions,
+    /// Select a profile (repeatable; omit value for a selection tree)
+    #[arg(long, value_name = "PROFILE", num_args = 0..=1)]
     pub select: Option<Vec<String>>,
 }
 
@@ -226,7 +238,7 @@ pub enum TargetCommand {
         filename: Option<String>,
     },
     /// Pack profiles into a portable package
-    Pack(PackOptions),
+    Pack(TargetPackArgs),
     /// Unpack a portable package
     Unpack(UnpackArgs),
 }

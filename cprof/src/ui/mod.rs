@@ -3,3 +3,4 @@
 pub mod editor;
 pub mod prompt;
 pub mod style;
+pub(crate) mod tree;

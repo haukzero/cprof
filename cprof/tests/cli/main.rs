@@ -3,6 +3,7 @@ mod adoption;
 mod creation;
 mod editing;
 mod packages;
+mod packing;
 mod paths;
 mod profiles;
 mod support;

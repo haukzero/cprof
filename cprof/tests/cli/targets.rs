@@ -23,6 +23,7 @@ fn non_interactive_prompts_report_a_consistent_error() {
 
     for args in [
         &["pack", "--select"][..],
+        &["claude", "pack", "--select"],
         &["claude", "switch"],
         &["claude", "where"],
         &["claude", "create"],

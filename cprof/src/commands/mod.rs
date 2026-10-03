@@ -18,7 +18,7 @@ pub fn dispatch_root(command: RootCommand) -> Result<()> {
         RootCommand::Codex(args) => run_target_command("codex", args.command)?,
         RootCommand::Pack(args) => {
             let targets = TargetRepository::load()?;
-            root::pack::run(&targets, args.options.save, args.select)?;
+            root::pack::run(&targets, args.options.save, args.select, args.options.ascii)?;
         }
         RootCommand::Unpack(args) => {
             let targets = TargetRepository::load()?;
@@ -68,7 +68,13 @@ fn dispatch_target(
         TargetCommand::Switch { name, force } => target::switch::run(&target, name, force),
         TargetCommand::Clean { force } => target::clean::run(&target, force),
         TargetCommand::Where { name, filename } => target::where_::run(&target, name, filename),
-        TargetCommand::Pack(args) => target::pack::run(targets, &target, args.save),
+        TargetCommand::Pack(args) => target::pack::run(
+            targets,
+            &target,
+            args.options.save,
+            args.select,
+            args.options.ascii,
+        ),
         TargetCommand::Unpack(args) => target::unpack::run(
             targets,
             &target,

@@ -1,11 +1,13 @@
 //! Collect stored profiles and atomically write a portable package.
 
 use std::path::Path;
+use std::sync::Arc;
+
+use indexmap::IndexSet;
 
 use crate::error::Result;
 use crate::filesystem;
-use crate::profile::activation;
-use crate::profile::storage;
+use crate::profile::{ProfileInfo, activation, storage};
 use crate::targets::{TargetRepository, TargetSpec};
 
 use super::{PackageProfile, TargetPackage, encode_with_repository};
@@ -15,9 +17,15 @@ pub(crate) struct PackReport {
     pub(crate) profile_count: usize,
 }
 
-pub(crate) fn create<'a>(
+/// A resolved selection: only these stored profiles may enter the package.
+pub(crate) struct SelectedTarget {
+    pub(crate) target: Arc<TargetSpec>,
+    pub(crate) profiles: IndexSet<String>,
+}
+
+pub(crate) fn create(
     targets: &TargetRepository,
-    selected: impl IntoIterator<Item = &'a TargetSpec>,
+    selected: &[SelectedTarget],
     output: &Path,
 ) -> Result<PackReport> {
     let mut packages = Vec::new();
@@ -35,19 +43,28 @@ pub(crate) fn create<'a>(
     })
 }
 
-fn collect_target(target: &TargetSpec) -> Result<Option<TargetPackage>> {
-    let names = storage::names(target)?;
-    if names.is_empty() {
+fn collect_target(selected: &SelectedTarget) -> Result<Option<TargetPackage>> {
+    let target = &selected.target;
+    if selected.profiles.is_empty() {
         return Ok(None);
     }
-    let mut profiles = Vec::with_capacity(names.len());
-    for name in names {
-        let resources = storage::read(target, &name)?;
-        profiles.push(PackageProfile::new(name, resources));
+    let mut profiles = Vec::with_capacity(selected.profiles.len());
+    for name in &selected.profiles {
+        let resources = storage::read(target, name)?;
+        profiles.push(PackageProfile::new(name.clone(), resources));
     }
+    // These profiles have already been validated. Do not inspect the contents
+    // of an excluded active profile just to determine package metadata.
+    let complete_profiles = profiles
+        .iter()
+        .map(|profile| ProfileInfo {
+            name: profile.name.clone(),
+            complete: true,
+        })
+        .collect::<Vec<_>>();
     Ok(Some(TargetPackage::with_active(
         target.id.clone(),
         profiles,
-        activation::active_name(target)?,
+        activation::active_name_from_profiles(target, &complete_profiles)?,
     )))
 }
