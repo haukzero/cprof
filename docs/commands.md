@@ -29,7 +29,7 @@
 
 - `create` 省略名称时交互输入新名称; 使用 `--copy-from profile` 或 `-c profile` 指定来源, 否则在默认模板和已有 profile 间模糊选择.
 - `adopt` 支持普通文件和外部软链接; 省略名称时交互输入新名称.
-- `edit`, `switch`, `where`, `remove` 省略名称时进入模糊搜索选择. `rename` 可以同时传入旧名称和新名称, 或不传名称进入交互流程.
+- `edit`, `switch`, `where` 省略名称时进入模糊搜索选择. `rename` 可以同时传入旧名称和新名称, 或不传名称进入交互流程.
 - `switch -f` 允许替换目标路径上未托管的文件或外部软链接; 如需保留现有配置, 先使用 `adopt` 导入.
 
 ## 编辑器与资源
@@ -49,11 +49,20 @@ cprof codex edit work --editor code --editor-arg --wait
 
 | 命令 | 说明 |
 |------|------|
-| `cprof <target> remove [names...] [-f]` | 删除指定 profile, 名称支持 `*` 和 `?` 通配符 |
+| `cprof remove [target[/name_or_pattern]...] [-f] [--ascii]` | 删除指定 target 的全部或部分 profile, 可跨 target 选择 |
+| `cprof <target> remove [names...] [-f] [--ascii]` | 删除指定 profile, 名称支持 `*` 和 `?` 通配符 |
 | `cprof <target> clean [-f]` | 清空当前 target 的 profile 和托管软链接 |
 | `cprof clean [-f] [--extra-toml]` | 清空所有 target, `--extra-toml` 一并删除外部 target 配置 |
 
-`remove` 删除当前激活项时需要确认, `-f` 允许直接删除. `clean` 默认需要确认, `-f` 跳过确认; root command `clean` 默认保留 `extra-target.toml`.
+两个 `remove` 命令省略名称时都打开树状多选界面, 操作方式与[打包选择](#选择打包内容)相同, 支持 `--ascii` 和 `CPROF_ASCII=1`. root command 中传入 `target` 选择该 target 的全部 profile, 传入 `target/name_or_pattern` 选择匹配的 profile; 重复项自动去重:
+
+```bash
+cprof remove claude "codex/work-*"
+cprof codex remove "work-*" personal
+cprof remove --ascii
+```
+
+`remove` 删除当前激活项时需要确认, `-f` 允许直接删除; 全部选择校验和激活项确认完成后才开始删除. `clean` 默认需要确认, `-f` 跳过确认; root command `clean` 默认保留 `extra-target.toml`.
 
 通配符建议加引号, 如 `cprof codex remove "work-*"`. 需要交互输入或确认时, 非交互环境会报错退出; 可显式传入名称, 并在支持的命令中使用 `--force` (`-f`) 确认操作.
 

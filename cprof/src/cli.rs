@@ -59,6 +59,8 @@ pub enum RootCommand {
     Pack(RootPackArgs),
     /// Unpack profiles for every target in a package
     Unpack(UnpackArgs),
+    /// Remove profiles from registered targets
+    Remove(RootRemoveArgs),
     /// Remove all profiles and optionally the external target configuration
     Clean(CleanArgs),
     /// Edit the external target configuration file
@@ -125,6 +127,34 @@ pub struct UnpackArgs {
     /// Mirror profiles, active config, and external targets; remove local extras
     #[arg(short, long)]
     pub mirror: bool,
+}
+
+#[derive(Args)]
+pub struct RemoveOptions {
+    /// Remove active profiles without confirmation
+    #[arg(short, long)]
+    pub force: bool,
+    /// Draw the selection tree with ASCII characters (also enabled by CPROF_ASCII=1)
+    #[arg(long)]
+    pub ascii: bool,
+}
+
+#[derive(Args)]
+pub struct RootRemoveArgs {
+    #[command(flatten)]
+    pub options: RemoveOptions,
+    /// Targets or target/profile patterns (opens a selection tree if omitted)
+    #[arg(value_name = "TARGET[/NAME_OR_PATTERN]")]
+    pub names: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct TargetRemoveArgs {
+    #[command(flatten)]
+    pub options: RemoveOptions,
+    /// Profile names or wildcard patterns (opens a selection tree if omitted)
+    #[arg(value_name = "NAME_OR_PATTERN")]
+    pub names: Vec<String>,
 }
 
 #[derive(Args)]
@@ -201,13 +231,7 @@ pub enum TargetCommand {
         editor: EditorOptions,
     },
     /// Remove profiles by name or wildcard pattern
-    Remove {
-        #[arg(value_name = "NAME_OR_PATTERN")]
-        names: Vec<String>,
-        /// Remove an active profile without confirmation
-        #[arg(short, long)]
-        force: bool,
-    },
+    Remove(TargetRemoveArgs),
     /// Rename a profile
     Rename {
         /// Old profile name (prompts if omitted)

@@ -20,17 +20,20 @@ pub(crate) use state::Item;
 use state::{Check, Selection};
 pub(crate) use style::TreeStyle;
 
-/// Return checked leaf indices in display order. The tree starts unchecked.
-pub(crate) fn select(prompt: &str, root: Item, style: TreeStyle) -> Result<Vec<usize>> {
+/// Return checked leaf values in display order. The tree starts unchecked.
+/// Callers use `Item::is_empty` to report an operation-specific empty-selection error.
+pub(crate) fn select<T>(prompt: &str, root: Item<T>, style: TreeStyle) -> Result<Vec<T>> {
+    let mut selection = Selection::new(root, style);
     interaction::interact(prompt, &[Key::Char('q'), Key::CtrlC], |prompt| {
-        interact(prompt, &mut Selection::new(root, style)).map_err(Into::into)
-    })
+        interact(prompt, &mut selection).map_err(Into::into)
+    })?;
+    Ok(selection.into_selected())
 }
 
-fn interact(
+fn interact<T>(
     prompt: &interaction::Prompt,
-    selection: &mut Selection,
-) -> io::Result<Option<Vec<usize>>> {
+    selection: &mut Selection<T>,
+) -> io::Result<Option<()>> {
     let mut screen = Screen {
         term: Term::buffered_stderr(),
         lines: 0,
@@ -97,7 +100,7 @@ fn interact(
             Key::End => cursor = selection.rows.len() - 1,
             Key::Char(' ') => selection.toggle(cursor),
             Key::Char('a') => selection.toggle(0),
-            Key::Enter if !selected.is_empty() => return Ok(Some(selected)),
+            Key::Enter if !selected.is_empty() => return Ok(Some(())),
             Key::Enter => empty_submission = true,
             _ => {}
         }

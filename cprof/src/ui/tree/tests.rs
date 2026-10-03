@@ -1,20 +1,23 @@
 use super::TreeStyle;
 use super::state::{Check, Item, Selection};
 
-fn tree() -> Selection {
+fn tree() -> Selection<usize> {
     tree_with_style(TreeStyle::Unicode)
 }
 
-fn tree_with_style(style: TreeStyle) -> Selection {
+fn tree_with_style(style: TreeStyle) -> Selection<usize> {
     Selection::new(
         Item::Branch(
             "All profiles".into(),
             vec![
                 Item::Branch(
                     "claude".into(),
-                    vec![Item::Leaf("personal".into()), Item::Leaf("work".into())],
+                    vec![
+                        Item::Leaf("personal".into(), 0),
+                        Item::Leaf("work".into(), 1),
+                    ],
                 ),
-                Item::Branch("codex".into(), vec![Item::Leaf("work".into())]),
+                Item::Branch("codex".into(), vec![Item::Leaf("work".into(), 2)]),
                 Item::Branch("empty".into(), vec![]),
             ],
         ),
@@ -76,6 +79,52 @@ fn empty_branches_never_become_selected_leaves() {
     assert_eq!(tree.check(6), Check::Empty);
     assert_eq!(tree.check(0), Check::All);
     assert_eq!(tree.selected(), [0, 1, 2]);
+}
+
+#[test]
+fn selected_values_keep_their_identity_and_display_order_independent_of_labels() {
+    struct Profile(&'static str);
+
+    let mut tree = Selection::new(
+        Item::Branch(
+            "All profiles".into(),
+            vec![
+                Item::Branch("empty".into(), vec![]),
+                Item::Branch(
+                    "claude".into(),
+                    vec![
+                        Item::Leaf("work (active)".into(), Profile("claude/work")),
+                        Item::Branch(
+                            "nested".into(),
+                            vec![Item::Leaf("other".into(), Profile("claude/other"))],
+                        ),
+                    ],
+                ),
+                Item::Branch(
+                    "codex".into(),
+                    vec![Item::Leaf("work (active)".into(), Profile("codex/work"))],
+                ),
+            ],
+        ),
+        TreeStyle::Unicode,
+    );
+    tree.toggle(6);
+    tree.toggle(2);
+    tree.toggle(5);
+
+    let selected: Vec<_> = tree
+        .into_selected()
+        .into_iter()
+        .map(|profile| profile.0)
+        .collect();
+    assert_eq!(selected, ["claude/work", "codex/work"]);
+}
+
+#[test]
+fn nested_empty_branches_have_no_selectable_values() {
+    let empty = Item::<()>::Branch("root".into(), vec![Item::Branch("nested".into(), vec![])]);
+    assert!(empty.is_empty());
+    assert!(!Item::Branch("root".into(), vec![empty, Item::Leaf("leaf".into(), ())]).is_empty());
 }
 
 #[test]

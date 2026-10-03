@@ -192,6 +192,7 @@ pub const INVALID_CONFIGS: &[(&str, &str)] = &[
         "conflicts with the command of the same name",
     ),
     ("[help]\n", "conflicts with the command of the same name"),
+    ("[remove]\n", "conflicts with the command of the same name"),
     (
         "[first]\nid = 'same'\n[second]\nid = 'same'\n",
         "conflicts with an existing target",

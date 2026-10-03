@@ -3,9 +3,18 @@ use std::ops::Range;
 use super::TreeStyle;
 
 /// Empty branches are visible but cannot select anything.
-pub(crate) enum Item {
-    Leaf(String),
-    Branch(String, Vec<Item>),
+pub(crate) enum Item<T> {
+    Leaf(String, T),
+    Branch(String, Vec<Item<T>>),
+}
+
+impl<T> Item<T> {
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            Self::Leaf(_, _) => false,
+            Self::Branch(_, children) => children.iter().all(Self::is_empty),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,27 +33,30 @@ pub(super) struct Row {
 
 /// Branch states are derived from their leaves, so toggling a child cannot
 /// leave an ancestor checked when only part of its subtree is selected.
-pub(super) struct Selection {
+pub(super) struct Selection<T> {
     pub(super) rows: Vec<Row>,
     checked: Vec<bool>,
+    values: Vec<T>,
 }
 
-impl Selection {
-    pub(super) fn new(root: Item, style: TreeStyle) -> Self {
+impl<T> Selection<T> {
+    pub(super) fn new(root: Item<T>, style: TreeStyle) -> Self {
         let mut selection = Self {
             rows: Vec::new(),
             checked: Vec::new(),
+            values: Vec::new(),
         };
         selection.append(root, "", "", style);
         selection
     }
 
-    fn append(&mut self, item: Item, prefix: &str, children_prefix: &str, style: TreeStyle) {
+    fn append(&mut self, item: Item<T>, prefix: &str, children_prefix: &str, style: TreeStyle) {
         let start = self.checked.len();
         let row = self.rows.len();
         let (label, children) = match item {
-            Item::Leaf(label) => {
+            Item::Leaf(label, value) => {
                 self.checked.push(false);
+                self.values.push(value);
                 (label, Vec::new())
             }
             Item::Branch(label, children) => (label, children),
@@ -88,6 +100,14 @@ impl Selection {
             .iter()
             .enumerate()
             .filter_map(|(index, &checked)| checked.then_some(index))
+            .collect()
+    }
+
+    pub(super) fn into_selected(self) -> Vec<T> {
+        self.values
+            .into_iter()
+            .zip(self.checked)
+            .filter_map(|(value, checked)| checked.then_some(value))
             .collect()
     }
 }

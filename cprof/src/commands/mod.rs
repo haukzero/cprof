@@ -24,6 +24,10 @@ pub fn dispatch_root(command: RootCommand) -> Result<()> {
             let targets = TargetRepository::load()?;
             root::unpack::run(&targets, args.path, args.force, args.dry_run, args.mirror)?;
         }
+        RootCommand::Remove(args) => {
+            let targets = TargetRepository::load()?;
+            root::remove::run(&targets, args.names, args.options.force, args.options.ascii)?;
+        }
         RootCommand::Clean(args) => {
             let targets = TargetRepository::load()?;
             root::clean::run(&targets, args.force, args.extra_toml)?;
@@ -61,7 +65,13 @@ fn dispatch_target(
             filename,
             editor,
         } => target::edit::run(&target, name, filename, editor),
-        TargetCommand::Remove { names, force } => target::remove::run(&target, names, force),
+        TargetCommand::Remove(args) => target::remove::run(
+            targets,
+            &target,
+            args.names,
+            args.options.force,
+            args.options.ascii,
+        ),
         TargetCommand::Rename { old_name, new_name } => {
             target::rename::run(&target, old_name, new_name)
         }

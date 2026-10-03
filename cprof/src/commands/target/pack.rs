@@ -1,4 +1,4 @@
-use crate::commands::support::pack::{self, Scope};
+use crate::commands::support::{pack, selection::Scope};
 use crate::error::Result;
 use crate::targets::{TargetRepository, TargetSpec};
 

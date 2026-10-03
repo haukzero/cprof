@@ -11,6 +11,8 @@ fn static_cli_information_does_not_require_valid_config() {
         &["edit-extra", "--help"],
         &["help", "edit-extra"],
         &["pack", "--help"],
+        &["remove", "--help"],
+        &["claude", "remove", "--help"],
     ] {
         assert!(!home.succeeds(args).is_empty());
     }
@@ -24,6 +26,8 @@ fn non_interactive_prompts_report_a_consistent_error() {
     for args in [
         &["pack", "--select"][..],
         &["claude", "pack", "--select"],
+        &["remove"],
+        &["claude", "remove"],
         &["claude", "switch"],
         &["claude", "where"],
         &["claude", "create"],
@@ -68,6 +72,7 @@ fn target_consumers_still_reject_invalid_configs() {
             &["claude", "dir"],
             &["demo", "dir"],
             &["pack"],
+            &["remove", "claude", "-f"],
             &["clean", "-f", "--extra-toml"],
             &["--help"],
         ] {

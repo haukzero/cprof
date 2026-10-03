@@ -9,12 +9,20 @@ pub mod adoption;
 pub mod storage;
 
 use std::fmt;
+use std::sync::Arc;
 
+use indexmap::IndexSet;
 use serde::Serialize;
 
 use crate::config::paths;
 use crate::error::{ProfileError, Result};
-use crate::targets::ResourceSpec;
+use crate::targets::{ResourceSpec, TargetSpec};
+
+/// Stored profiles selected for an operation, in selection order without duplicates.
+pub(crate) struct SelectedTarget {
+    pub(crate) target: Arc<TargetSpec>,
+    pub(crate) profiles: IndexSet<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct ProfileInfo {

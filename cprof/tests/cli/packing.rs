@@ -143,6 +143,11 @@ fn invalid_selections_and_invalid_selected_profiles_preserve_existing_output() {
             "Profile 'missing' not found",
         ),
         (&["pack", "--select", "claude/"], "Invalid profile name"),
+        (&["pack", "--select", "claude/v*"], "Invalid profile name"),
+        (
+            &["claude", "pack", "--select", "v*"],
+            "Invalid profile name",
+        ),
         (
             &["pack", "--select", "claude/../valid"],
             "Invalid profile name",

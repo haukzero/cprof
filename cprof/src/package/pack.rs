@@ -1,26 +1,17 @@
 //! Collect stored profiles and atomically write a portable package.
 
 use std::path::Path;
-use std::sync::Arc;
-
-use indexmap::IndexSet;
 
 use crate::error::Result;
 use crate::filesystem;
-use crate::profile::{ProfileInfo, activation, storage};
-use crate::targets::{TargetRepository, TargetSpec};
+use crate::profile::{ProfileInfo, SelectedTarget, activation, storage};
+use crate::targets::TargetRepository;
 
 use super::{PackageProfile, TargetPackage, encode_with_repository};
 
 pub(crate) struct PackReport {
     pub(crate) target_count: usize,
     pub(crate) profile_count: usize,
-}
-
-/// A resolved selection: only these stored profiles may enter the package.
-pub(crate) struct SelectedTarget {
-    pub(crate) target: Arc<TargetSpec>,
-    pub(crate) profiles: IndexSet<String>,
 }
 
 pub(crate) fn create(

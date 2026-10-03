@@ -6,5 +6,6 @@ mod packages;
 mod packing;
 mod paths;
 mod profiles;
+mod removal;
 mod support;
 mod targets;
