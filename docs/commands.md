@@ -36,7 +36,7 @@
 
 `create`, `edit`, `edit-extra` 均支持 `--editor program` 和可重复传入的 `--editor-arg arg`. `--editor-arg` 需要同时指定 `--editor`.
 
-编辑器按 `--editor`, `VISUAL`, `EDITOR`, 系统默认值的顺序选择. `VISUAL` 和 `EDITOR` 支持带引号的"程序 + 参数"配置.
+编辑器按 `--editor`, `CPROF_EDITOR`, `VISUAL`, `EDITOR`, 系统默认值的顺序选择, 环境变量为空或仅包含空白时继续回退. 三个环境变量均支持带引号的"程序 + 参数"配置, 如 `CPROF_EDITOR='code --wait'`. 全部未配置时 Windows 使用 `notepad`, 其他平台使用 `vi`.
 
 `edit` 和 `where` 的 `--filename` 使用资源逻辑名称, Claude 为 `settings`, Codex 为 `config` 或 `auth`:
 

@@ -56,55 +56,97 @@ fn profile_edit_drafts_keep_the_original_file_extensions() {
 }
 
 #[test]
-fn explicit_editor_arguments_precede_the_draft_path() {
+fn explicit_editor_overrides_environment_and_preserves_arguments() {
     let home = TestHome::new();
     let editor = home.editor(
         "[ \"$1\" = --wait ] && [ \"$2\" = 'two words' ] && [ -f \"$3\" ]\n",
         "if not \"%~1\"==\"--wait\" exit /b 1\nif not \"%~2\"==\"two words\" exit /b 1\nif not exist \"%~3\" exit /b 1\nexit /b 0\n",
     );
-    home.succeeds(&[
-        "edit-extra",
-        "--editor",
-        editor.to_str().unwrap(),
-        "--editor-arg=--wait",
-        "--editor-arg",
-        "two words",
-    ]);
+    let output = home
+        .command(&[
+            "edit-extra",
+            "--editor",
+            editor.to_str().unwrap(),
+            "--editor-arg=--wait",
+            "--editor-arg",
+            "two words",
+        ])
+        .env("CPROF_EDITOR", "'unterminated")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
     assert!(home.config_path().is_file());
 }
 
 #[test]
-fn visual_takes_priority_and_supports_editor_arguments() {
-    let home = TestHome::new();
-    let editor = home.editor(
-        "[ \"$1\" = --visual ] || exit 1\nprintf '[visual]\\n' > \"$2\"\n",
-        "if not \"%~1\"==\"--visual\" exit /b 1\n>\"%~2\" echo [visual]\n",
-    );
-    let visual = format!("{} --visual", shell_words::quote(editor.to_str().unwrap()));
-    let output = home
-        .command(&["edit-extra"])
-        .env("VISUAL", visual)
-        .env("EDITOR", "must-not-launch-this-editor")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{output:?}");
-    assert_eq!(
-        fs::read_to_string(home.config_path()).unwrap().trim(),
-        "[visual]"
-    );
+fn editor_environment_priority_preserves_command_arguments() {
+    for name in ["CPROF_EDITOR", "VISUAL"] {
+        let home = TestHome::new();
+        let editor = home.editor(
+            "[ \"$1\" = 'two words' ] || exit 1\nprintf '[edited]\\n' > \"$2\"\n",
+            "if not \"%~1\"==\"two words\" exit /b 1\n>\"%~2\" echo [edited]\n",
+        );
+        let command = format!(
+            "{} 'two words'",
+            shell_words::quote(editor.to_str().unwrap())
+        );
+        let output = home
+            .command(&["edit-extra"])
+            .env("VISUAL", "must-not-launch-this-editor")
+            .env("EDITOR", "must-not-launch-this-editor")
+            .env(name, command)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{name}: {output:?}");
+        assert_eq!(
+            fs::read_to_string(home.config_path()).unwrap().trim(),
+            "[edited]"
+        );
+    }
 }
 
 #[test]
-fn malformed_visual_command_is_reported() {
-    let home = TestHome::new();
-    let output = home
-        .command(&["edit-extra"])
-        .env("VISUAL", "'unterminated")
-        .output()
-        .unwrap();
-    assert_failure(&output, "Invalid editor command");
-    assert_failure(&output, "missing closing quote");
-    assert!(!home.config_path().exists());
+fn blank_editor_environment_values_fall_back() {
+    for blank in ["", " \t\n "] {
+        for fallback in ["VISUAL", "EDITOR"] {
+            let home = TestHome::new();
+            let editor = home.editor(
+                "printf '[fallback]\\n' > \"$1\"\n",
+                ">\"%~1\" echo [fallback]\n",
+            );
+            let output = home
+                .command(&["edit-extra"])
+                .env("CPROF_EDITOR", blank)
+                .env("VISUAL", blank)
+                .env("EDITOR", "must-not-launch-this-editor")
+                .env(
+                    fallback,
+                    shell_words::quote(editor.to_str().unwrap()).as_ref(),
+                )
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{fallback}: {output:?}");
+            assert_eq!(
+                fs::read_to_string(home.config_path()).unwrap().trim(),
+                "[fallback]"
+            );
+        }
+    }
+}
+
+#[test]
+fn malformed_editor_environment_commands_are_reported() {
+    for name in ["CPROF_EDITOR", "VISUAL", "EDITOR"] {
+        let home = TestHome::new();
+        let output = home
+            .command(&["edit-extra"])
+            .env(name, "'unterminated")
+            .output()
+            .unwrap();
+        assert_failure(&output, "Invalid editor command");
+        assert_failure(&output, "missing closing quote");
+        assert!(!home.config_path().exists());
+    }
 }
 
 #[test]

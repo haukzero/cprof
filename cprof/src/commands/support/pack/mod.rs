@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::envs::{self, EnvVar};
 use crate::error::Result;
 use crate::package::{self, pack};
 use crate::targets::TargetRepository;
@@ -10,7 +11,7 @@ mod selection;
 pub(crate) use selection::Scope;
 
 fn branch_style(ascii: bool) -> TreeStyle {
-    if ascii || std::env::var_os("CPROF_ASCII").is_some_and(|value| value == "1") {
+    if ascii || envs::Ascii.get() {
         TreeStyle::Ascii
     } else {
         TreeStyle::Unicode

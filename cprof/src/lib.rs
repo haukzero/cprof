@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod elevate;
+pub mod envs;
 pub mod error;
 mod filesystem;
 pub mod format;

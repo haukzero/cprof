@@ -71,6 +71,7 @@ impl TestHome {
             .args(args)
             .env("HOME", &self.path)
             .env("NO_COLOR", "1")
+            .env_remove("CPROF_EDITOR")
             .env_remove("VISUAL")
             .env(
                 "EDITOR",

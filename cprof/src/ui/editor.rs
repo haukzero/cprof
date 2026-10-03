@@ -1,9 +1,9 @@
-use std::env;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
+use crate::envs::{self, EnvVar};
 use crate::error::{AppError, EditorError, IoContext, Result};
 use crate::filesystem::EditLock;
 use crate::filesystem::transaction::PathTransaction;
@@ -20,24 +20,16 @@ impl EditSession {
     pub fn new(editor: Option<String>, editor_args: Vec<String>, scope: &Path) -> Result<Self> {
         let (editor, editor_args) = match editor {
             Some(editor) => (editor, editor_args),
-            None => match ["VISUAL", "EDITOR"]
-                .into_iter()
-                .find_map(|name| env::var(name).ok().filter(|value| !value.trim().is_empty()))
-            {
-                Some(command) => {
-                    let mut words = shell_words::split(&command)
-                        .map_err(|error| EditorError::InvalidCommand(error.to_string()))?
-                        .into_iter();
-                    let editor = words.next().ok_or_else(|| {
-                        EditorError::InvalidCommand("command is empty".to_string())
-                    })?;
-                    (editor, words.collect())
-                }
-                None => (
-                    if cfg!(windows) { "notepad" } else { "vi" }.to_string(),
-                    Vec::new(),
-                ),
-            },
+            None => {
+                let command = envs::Editor.get();
+                let mut words = shell_words::split(&command)
+                    .map_err(|error| EditorError::InvalidCommand(error.to_string()))?
+                    .into_iter();
+                let editor = words
+                    .next()
+                    .ok_or_else(|| EditorError::InvalidCommand("command is empty".to_string()))?;
+                (editor, words.collect())
+            }
         };
         let lock_path = EditLock::path(scope);
         let lock = EditLock::try_acquire(scope)
