@@ -28,6 +28,7 @@ pub(super) enum Check {
 pub(super) struct Row {
     pub(super) prefix: String,
     pub(super) label: String,
+    pub(super) path: String,
     leaves: Range<usize>,
 }
 
@@ -46,11 +47,18 @@ impl<T> Selection<T> {
             checked: Vec::new(),
             values: Vec::new(),
         };
-        selection.append(root, "", "", style);
+        selection.append(root, "", "", "", style);
         selection
     }
 
-    fn append(&mut self, item: Item<T>, prefix: &str, children_prefix: &str, style: TreeStyle) {
+    fn append(
+        &mut self,
+        item: Item<T>,
+        parent: &str,
+        prefix: &str,
+        children_prefix: &str,
+        style: TreeStyle,
+    ) {
         let start = self.checked.len();
         let row = self.rows.len();
         let (label, children) = match item {
@@ -61,9 +69,15 @@ impl<T> Selection<T> {
             }
             Item::Branch(label, children) => (label, children),
         };
+        let path = if parent.is_empty() {
+            label.clone()
+        } else {
+            format!("{parent}/{label}")
+        };
         self.rows.push(Row {
             prefix: prefix.to_string(),
             label,
+            path: path.clone(),
             leaves: start..start,
         });
         let count = children.len();
@@ -71,6 +85,8 @@ impl<T> Selection<T> {
             let last = index + 1 == count;
             self.append(
                 child,
+                // The root is a grouping label, not part of descendant paths.
+                if row == 0 { "" } else { &path },
                 &format!("{children_prefix}{}", style.branch(last)),
                 &format!("{children_prefix}{}", style.continuation(last)),
                 style,
@@ -91,8 +107,17 @@ impl<T> Selection<T> {
     }
 
     pub(super) fn toggle(&mut self, row: usize) {
-        let checked = self.check(row) != Check::All;
-        self.checked[self.rows[row].leaves.clone()].fill(checked);
+        self.toggle_rows(&[row]);
+    }
+
+    /// Apply one state to every matching subtree, including overlapping rows.
+    pub(super) fn toggle_rows(&mut self, rows: &[usize]) {
+        let checked = rows
+            .iter()
+            .any(|&row| matches!(self.check(row), Check::None | Check::Partial));
+        for &row in rows {
+            self.checked[self.rows[row].leaves.clone()].fill(checked);
+        }
     }
 
     pub(super) fn selected(&self) -> Vec<usize> {
