@@ -1,21 +1,9 @@
-use dialoguer::console::Key;
-use dialoguer::{Confirm, FuzzySelect};
-
 use crate::error::{ProfileError, Result};
 use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 
-pub(crate) use super::interaction::input;
-use super::interaction::interact;
-
-fn select_one(prompt: &str, items: &[String]) -> Result<usize> {
-    interact(prompt, &[], |prompt| {
-        FuzzySelect::new()
-            .with_prompt(&prompt.text)
-            .items(items)
-            .interact_opt()
-    })
-}
+use super::interaction::select_one;
+pub(crate) use super::interaction::{confirm, input};
 
 pub(crate) fn select_profile(
     target: &TargetSpec,
@@ -65,13 +53,4 @@ pub(crate) fn select_copy_source(target: &TargetSpec) -> Result<Option<String>> 
     }));
     let selection = select_one("Copy from (type to search)", &labels)?;
     Ok((selection > 0).then(|| profiles[selection - 1].name.clone()))
-}
-
-pub(crate) fn confirm(prompt: &str) -> Result<bool> {
-    interact(prompt, &[Key::Char('q')], |prompt| {
-        Confirm::new()
-            .with_prompt(&prompt.text)
-            .default(false)
-            .interact_opt()
-    })
 }

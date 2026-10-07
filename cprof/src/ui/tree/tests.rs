@@ -1,9 +1,11 @@
-use dialoguer::console::{Key, measure_text_width};
+use crate::ui::interaction::Key;
+use console::measure_text_width;
 
 use super::TreeStyle;
-use super::screen::search_line;
+use super::render::search_line;
 use super::state::{Check, Item, Selection};
 use super::view::View;
+use crate::ui::interaction::Component;
 
 fn tree() -> Selection<usize> {
     tree_with_style(TreeStyle::Unicode)
@@ -247,7 +249,7 @@ fn searching_and_clearing_preserve_hidden_selections_and_value_order() {
     view.handle(Key::Enter, &tree.rows);
     search(&mut view, &tree, "claude/personal");
     tree.toggle(view.current().unwrap());
-    assert_eq!(view.handle(Key::Escape, &tree.rows), None);
+    assert_eq!(view.handle(Key::Esc, &tree.rows), None);
     assert_eq!(view.query(), None);
     assert!(!view.editing());
     assert_eq!(view.rows, (0..tree.rows.len()).collect::<Vec<_>>());
@@ -305,7 +307,6 @@ fn search_treats_shortcuts_spaces_and_unicode_as_literal_text() {
     view.handle(Key::Backspace, &tree.rows);
     assert_eq!(view.query(), Some("target/qjak 工"));
     assert_eq!(view.rows, [2]);
-    assert_eq!(view.handle(Key::CtrlC, &tree.rows), Some(Key::CtrlC));
     view.handle(Key::Enter, &tree.rows);
     assert_eq!(
         view.handle(Key::Char('q'), &tree.rows),
@@ -323,8 +324,8 @@ fn no_matches_allow_navigation_clearing_and_recovery_without_changing_selection(
     search(&mut view, &tree, "missing");
     assert!(view.rows.is_empty());
     for key in [
-        Key::ArrowDown,
-        Key::ArrowUp,
+        Key::Down,
+        Key::Up,
         Key::Tab,
         Key::BackTab,
         Key::Home,
@@ -346,9 +347,9 @@ fn no_matches_allow_navigation_clearing_and_recovery_without_changing_selection(
         view.handle(key, &tree.rows);
         assert_eq!(view.current(), None);
     }
-    assert_eq!(view.handle(Key::Escape, &tree.rows), None);
+    assert_eq!(view.handle(Key::Esc, &tree.rows), None);
     assert_eq!(view.current(), Some(0));
-    assert_eq!(view.handle(Key::Escape, &tree.rows), Some(Key::Escape));
+    assert_eq!(view.handle(Key::Esc, &tree.rows), Some(Key::Esc));
     assert_eq!(tree.selected(), [2]);
 }
 
@@ -363,17 +364,17 @@ fn navigation_uses_filtered_indices_and_wraps_within_results() {
     for (key, expected) in [
         (Key::Char('k'), 5),
         (Key::Char('j'), 3),
-        (Key::ArrowDown, 5),
+        (Key::Down, 5),
         (Key::Tab, 3),
         (Key::BackTab, 5),
-        (Key::ArrowUp, 3),
+        (Key::Up, 3),
         (Key::End, 5),
         (Key::Home, 3),
     ] {
         assert_eq!(view.handle(key, &tree.rows), None);
         assert_eq!(view.current(), Some(expected));
     }
-    view.handle(Key::Escape, &tree.rows);
+    view.handle(Key::Esc, &tree.rows);
     assert_eq!(view.current(), Some(3));
 }
 
@@ -390,4 +391,27 @@ fn long_search_input_keeps_its_unicode_tail_visible_on_narrow_terminals() {
     }
     assert_eq!(search_line(query, 5), "/工作");
     assert_eq!(search_line("", 1), "/");
+}
+
+#[test]
+fn tree_declares_cancel_keys_for_each_search_state() {
+    let mut selection = tree();
+    let mut tree = super::Tree::new(&mut selection);
+    assert!(tree.cancel_keys().contains(&Key::Esc));
+    assert!(tree.cancel_keys().contains(&Key::Char('q')));
+
+    let _ = tree.handle(Key::Char('/').into());
+    assert!(!tree.cancel_keys().contains(&Key::Esc));
+    assert!(!tree.cancel_keys().contains(&Key::Char('q')));
+    let _ = tree.handle(Key::Char('q').into());
+    assert_eq!(tree.view.query(), Some("q"));
+
+    let _ = tree.handle(Key::Enter.into());
+    assert!(!tree.cancel_keys().contains(&Key::Esc));
+    assert!(tree.cancel_keys().contains(&Key::Char('q')));
+
+    let _ = tree.handle(Key::Esc.into());
+    assert!(tree.cancel_keys().contains(&Key::Esc));
+    assert!(tree.cancel_keys().contains(&Key::Char('q')));
+    assert_eq!(tree.view.query(), None);
 }

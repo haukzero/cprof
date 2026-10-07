@@ -1,69 +1,98 @@
-use std::io;
+use std::ops::ControlFlow;
 
-use dialoguer::console::{Key, Term, measure_text_width, truncate_str};
+use console::{measure_text_width, truncate_str};
 
-use super::Prompt;
+use super::{Component, Frame, Key, KeyEvent, KeyModifiers, key_code};
 
-pub(super) fn interact(prompt: &Prompt) -> io::Result<Option<String>> {
-    let line = Line(Term::buffered_stderr());
-    let mut input = Input::default();
-    loop {
-        line.render(&prompt.text, &input)?;
-        let Some(key) = prompt.read_key(&line.0)? else {
-            return Ok(None);
-        };
-        if let Some(value) = input.handle(key) {
-            line.0.clear_line()?;
-            line.0.write_line(&format!("{}: {value}", prompt.text))?;
-            return Ok(Some(value));
+#[derive(Default)]
+pub(super) struct Input(Text);
+
+impl Component for Input {
+    type Output = String;
+
+    fn render(&self, frame: &mut Frame) {
+        self.0.render(frame, &format!("{}: ", frame.prompt()));
+    }
+
+    fn handle(&mut self, key: KeyEvent) -> ControlFlow<String> {
+        if key_code(key) == Some(Key::Enter) && !self.0.is_empty() {
+            return ControlFlow::Break(self.0.value());
         }
+        self.0.handle(key);
+        ControlFlow::Continue(())
+    }
+
+    fn report(&self, output: &String) -> Option<String> {
+        Some(output.clone())
     }
 }
 
+/// Shared Unicode editing for the input and searchable selection components.
 #[derive(Default)]
-pub(super) struct Input {
+pub(super) struct Text {
     chars: Vec<char>,
     cursor: usize,
 }
 
-impl Input {
-    pub(super) fn handle(&mut self, key: Key) -> Option<String> {
-        match key {
-            Key::Char(ch) if !ch.is_control() => {
-                self.chars.insert(self.cursor, ch);
-                self.cursor += 1;
-            }
-            Key::Backspace if self.cursor > 0 => {
-                self.cursor -= 1;
-                self.chars.remove(self.cursor);
-            }
-            Key::Del if self.cursor < self.chars.len() => {
-                self.chars.remove(self.cursor);
-            }
-            Key::ArrowLeft if self.cursor > 0 => self.cursor -= 1,
-            Key::ArrowRight if self.cursor < self.chars.len() => self.cursor += 1,
-            Key::Home => self.cursor = 0,
-            Key::End => self.cursor = self.chars.len(),
-            Key::UnknownEscSeq(seq) if seq == ['b'] => {
+impl Text {
+    pub(super) fn handle(&mut self, key: KeyEvent) -> bool {
+        match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, Key::Left)
+            | (KeyModifiers::ALT, Key::Char('b') | Key::Left) => {
                 while self.cursor > 0 && self.chars[self.cursor - 1].is_whitespace() {
                     self.cursor -= 1;
                 }
                 while self.cursor > 0 && !self.chars[self.cursor - 1].is_whitespace() {
                     self.cursor -= 1;
                 }
+                return false;
             }
-            Key::UnknownEscSeq(seq) if seq == ['f'] => {
+            (KeyModifiers::CONTROL, Key::Right)
+            | (KeyModifiers::ALT, Key::Char('f') | Key::Right) => {
                 while self.cursor < self.chars.len() && !self.chars[self.cursor].is_whitespace() {
                     self.cursor += 1;
                 }
                 while self.cursor < self.chars.len() && self.chars[self.cursor].is_whitespace() {
                     self.cursor += 1;
                 }
+                return false;
             }
-            Key::Enter if !self.chars.is_empty() => return Some(self.chars.iter().collect()),
             _ => {}
         }
-        None
+        let Some(key) = key_code(key) else {
+            return false;
+        };
+        let mut changed = false;
+        match key {
+            Key::Char(ch) if !ch.is_control() => {
+                self.chars.insert(self.cursor, ch);
+                self.cursor += 1;
+                changed = true;
+            }
+            Key::Backspace if self.cursor > 0 => {
+                self.cursor -= 1;
+                self.chars.remove(self.cursor);
+                changed = true;
+            }
+            Key::Delete if self.cursor < self.chars.len() => {
+                self.chars.remove(self.cursor);
+                changed = true;
+            }
+            Key::Left if self.cursor > 0 => self.cursor -= 1,
+            Key::Right if self.cursor < self.chars.len() => self.cursor += 1,
+            Key::Home => self.cursor = 0,
+            Key::End => self.cursor = self.chars.len(),
+            _ => {}
+        }
+        changed
+    }
+
+    pub(super) fn value(&self) -> String {
+        self.chars.iter().collect()
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.chars.is_empty()
     }
 
     /// Scroll long input horizontally, leaving a cell for the cursor.
@@ -81,28 +110,10 @@ impl Input {
         );
         (visible, cursor)
     }
-}
-
-/// Keep input on one terminal line so cancellation and I/O errors can erase it.
-struct Line(Term);
-
-impl Line {
-    fn render(&self, prompt: &str, input: &Input) -> io::Result<()> {
-        let width = usize::from(self.0.size().1).saturating_sub(1);
-        let prompt = format!("{prompt}: ");
-        let prompt = truncate_str(&prompt, width.saturating_sub(1), "");
-        let (value, cursor) = input.view(width.saturating_sub(measure_text_width(&prompt)));
-        self.0.clear_line()?;
-        self.0.write_str(&format!("{prompt}{value}"))?;
-        self.0
-            .move_cursor_left(measure_text_width(&value).saturating_sub(cursor))?;
-        self.0.flush()
-    }
-}
-
-impl Drop for Line {
-    fn drop(&mut self) {
-        let _ = self.0.clear_line();
-        let _ = self.0.flush();
+    pub(super) fn render(&self, frame: &mut Frame, prefix: &str) {
+        let prefix = truncate_str(prefix, frame.width().saturating_sub(1), "");
+        let prefix_width = measure_text_width(&prefix);
+        let (value, cursor) = self.view(frame.width().saturating_sub(prefix_width));
+        frame.input(format!("{prefix}{value}"), prefix_width + cursor);
     }
 }

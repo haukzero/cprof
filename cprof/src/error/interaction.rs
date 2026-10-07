@@ -8,5 +8,5 @@ pub enum InteractionError {
     Cancelled,
 
     #[error("Interactive prompt failed: {0}")]
-    Prompt(#[from] dialoguer::Error),
+    Prompt(#[from] std::io::Error),
 }

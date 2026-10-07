@@ -1,4 +1,4 @@
-use dialoguer::console::Key;
+use crate::ui::interaction::Key;
 
 use super::state::Row;
 
@@ -36,7 +36,7 @@ impl View {
         self.search.as_ref().is_some_and(|search| search.editing)
     }
 
-    /// Consume search and navigation keys; return selection or cancellation keys.
+    /// Consume search and navigation keys; return unconsumed component keys.
     pub(super) fn handle(&mut self, key: Key, rows: &[Row]) -> Option<Key> {
         if let Some(search) = &mut self.search
             && search.editing
@@ -67,16 +67,16 @@ impl View {
                 });
                 self.filter(rows);
             }
-            Key::Escape if self.search.is_some() => {
+            Key::Esc if self.search.is_some() => {
                 let current = self.current().unwrap_or(0);
                 self.search = None;
                 self.rows = (0..rows.len()).collect();
                 self.cursor = current;
             }
-            Key::ArrowDown | Key::Tab | Key::Char('j') if !self.rows.is_empty() => {
+            Key::Down | Key::Tab | Key::Char('j') if !self.rows.is_empty() => {
                 self.cursor = (self.cursor + 1) % self.rows.len();
             }
-            Key::ArrowUp | Key::BackTab | Key::Char('k') if !self.rows.is_empty() => {
+            Key::Up | Key::BackTab | Key::Char('k') if !self.rows.is_empty() => {
                 self.cursor = (self.cursor + self.rows.len() - 1) % self.rows.len();
             }
             Key::Home => self.cursor = 0,
