@@ -197,7 +197,7 @@ fn concurrent_profile_creation_has_a_single_winner() {
             let stderr = String::from_utf8_lossy(&failure.stderr);
             assert!(
                 stderr.contains("already exists")
-                    || stderr.contains("another cprof edit session is active"),
+                    || stderr.contains("another cprof operation is active"),
                 "unexpected concurrent-create error: {stderr}"
             );
         }

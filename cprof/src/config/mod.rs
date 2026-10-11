@@ -22,8 +22,12 @@ pub(crate) fn extra_target_file() -> Result<PathBuf> {
 }
 
 pub fn profiles_dir(target: &TargetSpec) -> Result<PathBuf> {
-    paths::validate_target_id(&target.id)?;
-    paths::join_storage_under(&profiles_root()?, Path::new(&target.id))
+    target_profiles_dir(&target.id)
+}
+
+pub(crate) fn target_profiles_dir(target_id: &str) -> Result<PathBuf> {
+    paths::validate_target_id(target_id)?;
+    paths::join_storage_under(&profiles_root()?, Path::new(target_id))
 }
 
 pub fn profile_dir(target: &TargetSpec, name: &str) -> Result<PathBuf> {

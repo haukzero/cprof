@@ -49,21 +49,60 @@ impl From<bool> for UnpackMode {
     }
 }
 
-/// Prepare every packaged target, or only `target_id` when supplied.
-pub(crate) fn prepare(
-    targets: &TargetRepository,
-    path: &Path,
-    target_id: Option<&str>,
+/// Decode the input before reading local profile state or asking for decisions.
+/// The command uses `target_ids` to lock the complete import before preparation.
+pub(crate) struct UnpackSource {
+    packages: Vec<TargetPackage>,
+    target_id: Option<String>,
     mode: UnpackMode,
-    interaction: &mut impl UnpackInteraction,
-) -> Result<UnpackPlan> {
-    if !path.exists() {
-        return Err(PackageError::NotFound(path.to_path_buf()).into());
+    fingerprint: Fingerprint,
+}
+
+impl UnpackSource {
+    pub(crate) fn read(
+        targets: &TargetRepository,
+        path: &Path,
+        target_id: Option<&str>,
+        mode: UnpackMode,
+    ) -> Result<Self> {
+        if !path.exists() {
+            return Err(PackageError::NotFound(path.to_path_buf()).into());
+        }
+        let bytes = fs::read(path).with_path(path)?;
+        Ok(Self {
+            packages: selected_packages(targets, &bytes, target_id)?,
+            target_id: target_id.map(str::to_owned),
+            mode,
+            fingerprint: Fingerprint::new(&bytes, targets, target_id, mode)?,
+        })
     }
-    let bytes = fs::read(path).with_path(path)?;
-    let packages = selected_packages(targets, &bytes, target_id)?;
-    let fingerprint = Fingerprint::new(&bytes, targets, target_id, mode)?;
-    UnpackPlan::prepare(targets, packages, target_id, mode, interaction, fingerprint)
+
+    pub(crate) fn target_ids<'a>(&'a self, targets: &'a TargetRepository) -> BTreeSet<&'a str> {
+        let mut ids = self
+            .packages
+            .iter()
+            .map(|package| package.target.as_str())
+            .collect::<BTreeSet<_>>();
+        if self.mode == UnpackMode::Mirror && self.target_id.is_none() {
+            ids.extend(targets.all().iter().map(|target| target.id.as_str()));
+        }
+        ids
+    }
+
+    pub(crate) fn prepare(
+        self,
+        targets: &TargetRepository,
+        interaction: &mut impl UnpackInteraction,
+    ) -> Result<UnpackPlan> {
+        UnpackPlan::prepare(
+            targets,
+            self.packages,
+            self.target_id.as_deref(),
+            self.mode,
+            interaction,
+            self.fingerprint,
+        )
+    }
 }
 
 /// Prepare an unpack without staging or committing any filesystem changes.
@@ -74,7 +113,9 @@ pub(crate) fn preview(
     mode: UnpackMode,
     interaction: &mut impl UnpackInteraction,
 ) -> Result<UnpackPreview> {
-    Ok(prepare(targets, path, target_id, mode, interaction)?.preview_report())
+    Ok(UnpackSource::read(targets, path, target_id, mode)?
+        .prepare(targets, interaction)?
+        .preview_report())
 }
 
 // Keep validated profiles and the corresponding configuration change together
@@ -160,13 +201,9 @@ impl UnpackPlan {
         .commit()
     }
 
-    pub(crate) fn into_report(self) -> UnpackReport {
+    pub(crate) fn report(&self) -> UnpackReport {
         UnpackReport {
-            targets: self
-                .targets
-                .into_iter()
-                .map(TargetPlan::into_report)
-                .collect(),
+            targets: self.targets.iter().map(TargetPlan::report).collect(),
         }
     }
 }

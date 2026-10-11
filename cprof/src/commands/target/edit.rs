@@ -1,9 +1,8 @@
 use crate::cli::EditorOptions;
-use crate::config;
-use crate::error::{ProfileError, Result};
-use crate::profile::storage;
-use crate::targets::{ResourceSpec, TargetSpec};
-use crate::ui::{editor::EditSession, prompt, style};
+use crate::commands::support::edit;
+use crate::error::Result;
+use crate::targets::TargetSpec;
+use crate::ui::{prompt, style};
 
 #[cprof_macros::command(no_retry)]
 pub fn run(
@@ -13,27 +12,7 @@ pub fn run(
     editor: EditorOptions,
 ) -> Result<()> {
     let name = prompt::select_profile(target, name, "Profile to edit (type to search)")?;
-    storage::require_exists(target, &name)?;
-    let resources: Vec<&ResourceSpec> = match filename {
-        Some(filename) => vec![target.resource(&filename)?],
-        None => target.resources.iter().collect(),
-    };
-    let mut session = EditSession::new(
-        editor.editor,
-        editor.editor_args,
-        &config::profile_dir(target, &name)?,
-    )?;
-    for resource in resources {
-        let path = storage::resource_path(target, &name, resource)?;
-        if !path.exists() {
-            if resource.required {
-                return Err(ProfileError::Incomplete(name.clone()).into());
-            }
-            continue;
-        }
-        session.edit(&path, |bytes| resource.validate(bytes))?;
-    }
-    let changed = session.commit()?;
+    let changed = edit::profile(target, &name, filename.as_deref(), editor)?;
     if changed {
         style::success(format!("Updated profile '{}'", name));
     } else {

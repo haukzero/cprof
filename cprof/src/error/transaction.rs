@@ -1,8 +1,17 @@
+use std::path::PathBuf;
+
 use super::AppError;
 
 /// Transaction conflicts and failures during rollback or committed cleanup.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionError {
+    #[error(
+        "Cannot modify '{}': another cprof operation is active. Close it and retry. If the terminal was interrupted, stop the process holding the lock (Unix: lsof/fuser; Windows: Task Manager). Existing draft will be reused when editing resumes. Lock: '{}'",
+        scope.display(),
+        lock.display()
+    )]
+    Locked { scope: PathBuf, lock: PathBuf },
+
     #[error("Transaction conflict: {0}")]
     Conflict(String),
 

@@ -2,6 +2,7 @@ mod activation;
 mod adoption;
 mod creation;
 mod editing;
+mod locking;
 mod packages;
 mod packing;
 mod paths;

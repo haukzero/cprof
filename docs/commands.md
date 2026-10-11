@@ -38,6 +38,8 @@
 
 编辑器按 `--editor`, `CPROF_EDITOR`, `VISUAL`, `EDITOR`, 系统默认值的顺序选择, 环境变量为空或仅包含空白时继续回退. 三个环境变量均支持带引号的"程序 + 参数"配置, 如 `CPROF_EDITOR='code --wait'`. 全部未配置时 Windows 使用 `notepad`, 其他平台使用 `vi`.
 
+同一 target 的修改操作互斥: 编辑器未退出时, 创建、导入、删除、重命名、切换和清理该 target 会提示占用并退出, `--force` 不会绕过锁. 不同 target 可以独立编辑, 查看和 `--dry-run` 仍然可用. `edit-extra` 也会阻止导入或 `clean --extra-toml` 修改外部 target 配置; 操作结束或进程退出后自动释放锁.
+
 `edit` 和 `where` 的 `--filename` 使用资源逻辑名称, Claude 为 `settings`, Codex 为 `config` 或 `auth`:
 
 ```bash

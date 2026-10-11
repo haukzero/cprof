@@ -2,6 +2,8 @@
 //!
 //! Transaction orchestration lives in [`transaction`], while flushing and
 //! symlink creation are isolated in [`platform`].
+//! Command write sessions coordinate concurrency; path transactions handle
+//! staging, commit, and recovery without acquiring scope locks themselves.
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
@@ -18,7 +20,7 @@ mod platform;
 pub(crate) mod transaction;
 
 pub(crate) use edit::{create_edit_file, edit_draft_path, has_edit_draft};
-pub(crate) use lock::EditLock;
+pub(crate) use lock::WriteLocks;
 
 use platform::sync_path;
 use transaction::PathTransaction;

@@ -192,16 +192,16 @@ impl TargetPlan {
         Ok(())
     }
 
-    pub(super) fn into_report(self) -> UnpackedTarget {
+    pub(super) fn report(&self) -> UnpackedTarget {
         UnpackedTarget {
             target: self.target.id.clone(),
             profiles: self
                 .profiles
-                .into_iter()
-                .map(|profile| profile.package.name)
+                .iter()
+                .map(|profile| profile.package.name.clone())
                 .collect(),
-            removed: self.removed,
-            active_change: self.active_change,
+            removed: self.removed.clone(),
+            active_change: self.active_change.clone(),
             unchanged: self.unchanged,
             skipped: self.skipped,
         }

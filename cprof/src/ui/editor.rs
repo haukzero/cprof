@@ -5,19 +5,18 @@ use std::process::Command;
 
 use crate::envs::{self, EnvVar};
 use crate::error::{AppError, EditorError, IoContext, Result};
-use crate::filesystem::EditLock;
 use crate::filesystem::transaction::PathTransaction;
 
+/// Edit drafts and commit their transaction. The caller holds the write lock.
 pub struct EditSession {
     editor: String,
     editor_args: Vec<String>,
     transaction: Option<PathTransaction>,
-    _lock: EditLock,
     changed: bool,
 }
 
 impl EditSession {
-    pub fn new(editor: Option<String>, editor_args: Vec<String>, scope: &Path) -> Result<Self> {
+    pub fn new(editor: Option<String>, editor_args: Vec<String>) -> Result<Self> {
         let (editor, editor_args) = match editor {
             Some(editor) => (editor, editor_args),
             None => {
@@ -31,17 +30,9 @@ impl EditSession {
                 (editor, words.collect())
             }
         };
-        let lock_path = EditLock::path(scope);
-        let lock = EditLock::try_acquire(scope)
-            .map_err(|source| AppError::io(&lock_path, source))?
-            .ok_or_else(|| EditorError::Locked {
-                scope: scope.to_path_buf(),
-                lock: lock_path,
-            })?;
         Ok(Self {
             editor,
             editor_args,
-            _lock: lock,
             transaction: Some(PathTransaction::new()),
             changed: false,
         })

@@ -31,6 +31,10 @@ cargo test --workspace --all-targets -- --include-ignored
 The marker does not launch UAC. Keep tests that verify missing-privilege failures
 in the default suite.
 
+The CLI locking tests launch the test executable as an editor and synchronize
+over a local socket. They hold a real edit session open while running competing
+commands, without depending on editor timing or platform-specific scripts.
+
 The unpack decision replay tests are platform-independent and exercise the
 decision keys without launching an elevated process. The context-file tests
 under `elevate::context` compile only on Windows because they verify Windows

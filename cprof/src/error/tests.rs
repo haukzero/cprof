@@ -97,17 +97,18 @@ fn nested_validation_and_edit_errors_retain_the_cause_chain() {
 }
 
 #[test]
-fn locked_edit_error_explains_how_to_resume_a_draft() {
-    let error: AppError = EditorError::Locked {
-        scope: PathBuf::from("/home/example/.cprof/profiles/codex/work"),
-        lock: PathBuf::from("/tmp/cprof-edit-example.lock"),
+fn locked_write_error_explains_how_to_resume_a_draft() {
+    let error: AppError = TransactionError::Locked {
+        scope: PathBuf::from("/home/example/.cprof/profiles/codex"),
+        lock: PathBuf::from("/tmp/cprof-write-example.lock"),
     }
     .into();
 
     let message = error.to_string();
-    assert!(message.contains("another cprof edit session is active"));
+    assert!(message.contains("another cprof operation is active"));
     assert!(message.contains("stop the process holding the lock"));
     assert!(message.contains("Existing draft will be reused"));
+    assert!(error.io_source().is_none());
 }
 
 #[test]
