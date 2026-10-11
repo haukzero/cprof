@@ -19,6 +19,7 @@ mod io_context;
 mod package;
 mod path;
 mod profile;
+mod support;
 mod target;
 mod transaction;
 

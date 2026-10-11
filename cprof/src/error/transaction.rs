@@ -1,14 +1,15 @@
 use std::path::PathBuf;
 
 use super::AppError;
+use super::support::{display_path, format_errors};
 
 /// Transaction conflicts and failures during rollback or committed cleanup.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionError {
     #[error(
         "Cannot modify '{}': another cprof operation is active. Close it and retry. If the terminal was interrupted, stop the process holding the lock (Unix: lsof/fuser; Windows: Task Manager). Existing draft will be reused when editing resumes. Lock: '{}'",
-        scope.display(),
-        lock.display()
+        display_path(.scope),
+        display_path(.lock)
     )]
     Locked { scope: PathBuf, lock: PathBuf },
 
@@ -24,14 +25,6 @@ pub enum TransactionError {
         source: Box<AppError>,
         errors: Vec<AppError>,
     },
-}
-
-fn format_errors(errors: &[AppError]) -> String {
-    errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("; ")
 }
 
 impl AppError {

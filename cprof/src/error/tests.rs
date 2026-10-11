@@ -125,6 +125,61 @@ fn external_config_errors_retain_parse_context() {
     assert!(error.source().unwrap().is::<toml::de::Error>());
 }
 
+#[cfg(windows)]
+#[test]
+fn locked_write_error_displays_windows_paths_without_changing_identity() {
+    let lock = PathBuf::from(r"\\?\C:\Temp\cprof-write-example.lock");
+    for (input, expected) in [
+        (
+            r"\\?\C:\Users\示例\.cprof\extra-target.toml",
+            r"C:\Users\示例\.cprof\extra-target.toml",
+        ),
+        (
+            r"\\?\UNC\server\share\.cprof\extra-target.toml",
+            r"\\server\share\.cprof\extra-target.toml",
+        ),
+        (r"\\?\C:\", r"C:\"),
+        (r"\\?\UNC\server\share", r"\\server\share"),
+        (r"C:\Users\example\.cprof", r"C:\Users\example\.cprof"),
+        (r"\\server\share\.cprof", r"\\server\share\.cprof"),
+        (r"\\?\Volume{example}\data", r"\\?\Volume{example}\data"),
+        (r"\\.\pipe\cprof", r"\\.\pipe\cprof"),
+    ] {
+        let scope = PathBuf::from(input);
+        let error = TransactionError::Locked {
+            scope: scope.clone(),
+            lock: lock.clone(),
+        };
+        let message = error.to_string();
+        assert!(
+            message.starts_with(&format!("Cannot modify '{expected}':")),
+            "{message}"
+        );
+        assert!(
+            message.ends_with(r"Lock: 'C:\Temp\cprof-write-example.lock'"),
+            "{message}"
+        );
+        assert!(
+            matches!(error, TransactionError::Locked { scope: original_scope, lock: original_lock }
+            if original_scope == scope && original_lock == lock)
+        );
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn locked_write_error_preserves_backslashes_in_unix_filenames() {
+    let scope = r"\\?\C:\example";
+    let lock = r"\\?\UNC\server\share\example.lock";
+    let error = TransactionError::Locked {
+        scope: scope.into(),
+        lock: lock.into(),
+    };
+    let message = error.to_string();
+    assert!(message.starts_with(&format!("Cannot modify '{scope}':")));
+    assert!(message.ends_with(&format!("Lock: '{lock}'")));
+}
+
 #[test]
 fn transaction_errors_preserve_primary_and_all_recovery_failures() {
     let errors = || {
