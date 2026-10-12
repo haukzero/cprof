@@ -4,6 +4,7 @@ use crate::commands::support::selection::{self, Scope};
 use crate::error::{ProfileError, Result};
 use crate::profile::{SelectedTarget, activation, storage};
 use crate::targets::TargetRepository;
+use crate::ui::prompt;
 use crate::ui::tree::TreeStyle;
 
 pub(super) fn resolve(
@@ -33,14 +34,7 @@ fn interact_select(
         branches.push(selection::branch(
             target,
             profiles.into_iter().map(|profile| {
-                let status = if active.as_deref() == Some(profile.name.as_str()) {
-                    " (active)"
-                } else if !profile.complete {
-                    " (incomplete)"
-                } else {
-                    ""
-                };
-                let label = format!("{}{status}", profile.name);
+                let label = prompt::profile_label(&profile, active.as_deref());
                 (profile.name, label)
             }),
         ));

@@ -50,6 +50,19 @@ pub fn status(target: &TargetSpec) -> Result<Status> {
     status_with(target, |name| storage::is_complete(target, name))
 }
 
+/// Inspect current links while reusing completeness from this operation's profile list.
+pub(crate) fn status_from_profiles(
+    target: &TargetSpec,
+    profiles: &[ProfileInfo],
+) -> Result<Status> {
+    status_with(target, |name| {
+        Ok(profiles
+            .iter()
+            .find(|profile| profile.name == name)
+            .is_some_and(|profile| profile.complete))
+    })
+}
+
 fn status_with(
     target: &TargetSpec,
     is_complete: impl FnOnce(&str) -> Result<bool>,
@@ -89,12 +102,7 @@ pub(crate) fn active_name_from_profiles(
     target: &TargetSpec,
     profiles: &[ProfileInfo],
 ) -> Result<Option<String>> {
-    let status = status_with(target, |name| {
-        Ok(profiles
-            .iter()
-            .find(|profile| profile.name == name)
-            .is_some_and(|profile| profile.complete))
-    })?;
+    let status = status_from_profiles(target, profiles)?;
     Ok(status.active_name().map(str::to_owned))
 }
 

@@ -43,14 +43,15 @@ impl TargetRow {
         } else {
             "extra"
         };
-        let profiles = storage::counts(target)?;
+        let profiles = storage::list(target)?;
+        let counts = ProfileCounts::from_profiles(&profiles);
         let store_dir = config::profiles_dir(target)?.display().to_string();
-        let status = activation::status(target)?;
+        let status = activation::status_from_profiles(target, &profiles)?;
         Ok(TargetRow {
             name: target.id.to_string(),
             kind,
-            profiles_display: profiles.to_string(),
-            profiles,
+            profiles_display: counts.to_string(),
+            profiles: counts,
             status,
             store_dir,
         })

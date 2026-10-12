@@ -83,10 +83,7 @@ pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {
 
 pub fn counts(target: &TargetSpec) -> Result<ProfileCounts> {
     let profiles = list(target)?;
-    Ok(ProfileCounts {
-        total: profiles.len(),
-        incomplete: profiles.iter().filter(|profile| !profile.complete).count(),
-    })
+    Ok(ProfileCounts::from_profiles(&profiles))
 }
 
 /// List profile names without reading their resources.

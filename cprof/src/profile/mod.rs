@@ -36,6 +36,15 @@ pub struct ProfileCounts {
     pub incomplete: usize,
 }
 
+impl ProfileCounts {
+    pub(crate) fn from_profiles(profiles: &[ProfileInfo]) -> Self {
+        Self {
+            total: profiles.len(),
+            incomplete: profiles.iter().filter(|profile| !profile.complete).count(),
+        }
+    }
+}
+
 impl fmt::Display for ProfileCounts {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{} ({} incomplete)", self.total, self.incomplete)
