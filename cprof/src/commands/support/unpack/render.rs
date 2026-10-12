@@ -1,4 +1,6 @@
-use crate::package::unpack::{ChangeKind, ChangeSubject, UnpackPreview, UnpackReport};
+use crate::package::unpack::{
+    ActiveChange, ChangeKind, ChangeSubject, UnpackPreview, UnpackReport,
+};
 use crate::ui::style;
 
 pub(crate) fn render_restore(report: &UnpackReport) {
@@ -18,9 +20,11 @@ pub(crate) fn render_restore(report: &UnpackReport) {
             println!("  Removed profile '{name}'");
         }
         if let Some(active_change) = &target.active_change {
-            match &active_change.desired {
-                Some(name) => println!("  Activated profile '{name}'"),
-                None => println!("  Cleared active configuration"),
+            match active_change {
+                ActiveChange::Activate { profile, .. } => {
+                    println!("  Activated profile '{profile}'")
+                }
+                ActiveChange::Clear { .. } => println!("  Cleared active configuration"),
             }
         }
     }
@@ -32,7 +36,8 @@ pub(crate) fn render_preview(preview: &UnpackPreview) {
         let target = match &change.subject {
             ChangeSubject::TargetDefinition { target }
             | ChangeSubject::Profile { target, .. }
-            | ChangeSubject::ActiveProfile { target, .. } => target,
+            | ChangeSubject::ActiveProfile { target, .. }
+            | ChangeSubject::ActiveConfiguration { target } => target,
         };
         if current_target != Some(target) {
             println!("target '{target}':");
@@ -49,6 +54,7 @@ pub(crate) fn render_preview(preview: &UnpackPreview) {
             ChangeSubject::ActiveProfile { profile, .. } => {
                 format!("active profile '{profile}'")
             }
+            ChangeSubject::ActiveConfiguration { .. } => "active configuration".to_string(),
         };
         println!("  {marker} {subject}");
     }

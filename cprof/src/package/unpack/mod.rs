@@ -9,8 +9,9 @@ use crate::filesystem::transaction::PathTransaction;
 use crate::targets::TargetRepository;
 use crate::targets::external::{self, ConfigConflict, ExternalTargetConfig};
 
-use super::{TargetPackage, decode_with_repository};
+use super::{ActiveProfile, TargetPackage, decode_with_repository};
 
+mod activation;
 mod config;
 mod fingerprint;
 mod report;
@@ -148,14 +149,12 @@ impl UnpackPlan {
         for package in packages {
             let target = resolve_target(targets, &package, &target_configs)?;
             let active_profile = package.active_profile.clone();
-            let active_profile_known = package.active_profile_known;
             let profiles = remap_profiles(&target, package.profiles)?;
             fingerprint.target(&target, &profiles, mode)?;
             plans.push(TargetPlan::prepare(
                 target,
                 profiles,
                 active_profile,
-                active_profile_known,
                 mode,
                 interaction,
             )?);
@@ -169,8 +168,7 @@ impl UnpackPlan {
                 plans.push(TargetPlan::prepare(
                     target.clone(),
                     Vec::new(),
-                    None,
-                    true,
+                    ActiveProfile::None,
                     mode,
                     interaction,
                 )?);

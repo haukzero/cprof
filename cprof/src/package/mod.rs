@@ -21,8 +21,33 @@ pub struct TargetPackage {
     pub target: String,
     pub profiles: Vec<PackageProfile>,
     pub(crate) target_config: Option<ExternalTargetConfig>,
-    pub(crate) active_profile: Option<String>,
-    pub(crate) active_profile_known: bool,
+    pub(crate) active_profile: ActiveProfile,
+}
+
+/// Older packages omit activation metadata; that differs from an explicit clear.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ActiveProfile {
+    Unspecified,
+    None,
+    Named(String),
+}
+
+impl ActiveProfile {
+    fn name(&self) -> Option<&str> {
+        match self {
+            Self::Named(name) => Some(name),
+            Self::Unspecified | Self::None => None,
+        }
+    }
+}
+
+impl From<Option<String>> for ActiveProfile {
+    fn from(name: Option<String>) -> Self {
+        match name {
+            Some(name) => Self::Named(name),
+            None => Self::None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -37,8 +62,7 @@ impl TargetPackage {
             target: target.into(),
             profiles,
             target_config: None,
-            active_profile: None,
-            active_profile_known: false,
+            active_profile: ActiveProfile::Unspecified,
         }
     }
 
@@ -51,8 +75,7 @@ impl TargetPackage {
             target: target.into(),
             profiles,
             target_config: None,
-            active_profile,
-            active_profile_known: true,
+            active_profile: active_profile.into(),
         }
     }
 }
@@ -106,7 +129,6 @@ pub(crate) fn encode_with_repository(
             target: package.target.clone(),
             target_config,
             active_profile: package.active_profile.clone(),
-            active_profile_known: package.active_profile_known,
             profiles: encoded.manifest,
         });
         payloads.extend(encoded.payloads);
@@ -157,10 +179,10 @@ pub(crate) fn decode_with_repository(
             .into());
         }
         let profiles = profiles::decode(&target, target_index, manifest_target, &mut archive)?;
-        if let Some(active_profile) = &manifest_target.active_profile
+        if let Some(active_profile) = manifest_target.active_profile.name()
             && !profiles
                 .iter()
-                .any(|profile| &profile.name == active_profile)
+                .any(|profile| profile.name == active_profile)
         {
             return Err(PackageError::Invalid(format!(
                 "Active profile '{}' is not included for target '{}'",
@@ -173,7 +195,6 @@ pub(crate) fn decode_with_repository(
             profiles,
             target_config: manifest_target.target_config.clone(),
             active_profile: manifest_target.active_profile.clone(),
-            active_profile_known: manifest_target.active_profile_known,
         });
     }
     Ok(packages)
@@ -202,8 +223,7 @@ mod tests {
             targets: vec![manifest::ManifestTarget {
                 target: "demo".to_string(),
                 target_config: Some(config.clone()),
-                active_profile: None,
-                active_profile_known: true,
+                active_profile: ActiveProfile::None,
                 profiles: vec![manifest::ManifestProfile {
                     name: "empty".to_string(),
                     resources: vec![],

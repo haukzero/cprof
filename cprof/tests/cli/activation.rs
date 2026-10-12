@@ -137,6 +137,47 @@ fn switch_removes_optional_links_and_preserves_all_entries_on_conflict() {
 
 #[cprof_macros::windows_elevation]
 #[test]
+fn activation_matches_resource_keys_even_when_link_counts_are_equal() {
+    let home = TestHome::new();
+    home.set_config(
+        "[demo]\n[[demo.resources]]\nfilename = 'settings'\nactive_path = '.demo/settings'\n\
+         [[demo.resources]]\nfilename = 'old'\nactive_path = '.demo/old'\nrequired = false\n\
+         [[demo.resources]]\nfilename = 'new'\nactive_path = '.demo/new'\nrequired = false\n",
+    );
+    let profile = home.write_profile("demo", "work", &[("settings", "same"), ("old", "old")]);
+    home.succeeds(&["demo", "switch", "work"]);
+    fs::remove_file(profile.join("old")).unwrap();
+    fs::write(profile.join("new"), "new").unwrap();
+
+    let status = home.run(&["demo", "which"]);
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&status.stderr).contains("partially linked"));
+
+    home.succeeds(&["demo", "switch", "work"]);
+    assert_eq!(home.succeeds(&["demo", "which"]), "work\n");
+    assert!(fs::symlink_metadata(home.path.join(".demo/old")).is_err());
+    assert_eq!(
+        fs::read_to_string(home.path.join(".demo/new")).unwrap(),
+        "new"
+    );
+}
+
+#[test]
+fn switching_an_empty_profile_does_not_report_it_as_already_active() {
+    let home = TestHome::new();
+    home.set_config("[demo]\n");
+    home.write_profile("demo", "empty", &[]);
+    for _ in 0..2 {
+        let output = home.run(&["demo", "switch", "empty"]);
+        assert!(output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("already the active profile"));
+        assert!(home.succeeds(&["demo", "which"]).is_empty());
+    }
+}
+
+#[cprof_macros::windows_elevation]
+#[test]
 fn relative_managed_links_are_recognized_including_dangling_resources() {
     let home = unmanaged_codex();
     home.succeeds(&["codex", "adopt", "local"]);

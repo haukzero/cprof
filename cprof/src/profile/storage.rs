@@ -1,6 +1,6 @@
 //! Query, validate, and persist stored profiles and their resources.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -56,6 +56,17 @@ pub fn is_complete(target: &TargetSpec, name: &str) -> Result<bool> {
         }
     }
     Ok(true)
+}
+
+/// Identify stored resources when inspecting or rebuilding active links.
+pub(crate) fn resource_keys(target: &TargetSpec, name: &str) -> Result<BTreeSet<String>> {
+    let mut keys = BTreeSet::new();
+    for resource in &target.resources {
+        if config::profile_resource(target, name, resource)?.exists() {
+            keys.insert(resource.key.clone());
+        }
+    }
+    Ok(keys)
 }
 
 pub fn list(target: &TargetSpec) -> Result<Vec<ProfileInfo>> {

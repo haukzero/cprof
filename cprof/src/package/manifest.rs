@@ -1,6 +1,8 @@
 use crate::error::{PackageError, Result};
 use crate::targets::external::{self, ExternalResourceConfig, ExternalTargetConfig};
 
+use super::ActiveProfile;
+
 const MAGIC: &[u8; 4] = b"CPMF";
 const VERSION: u8 = 4;
 const ACTIVE_TRAILER: &[u8; 4] = b"ACTV";
@@ -16,8 +18,7 @@ pub(super) struct Manifest {
 pub(super) struct ManifestTarget {
     pub(super) target: String,
     pub(super) target_config: Option<ExternalTargetConfig>,
-    pub(super) active_profile: Option<String>,
-    pub(super) active_profile_known: bool,
+    pub(super) active_profile: ActiveProfile,
     pub(super) profiles: Vec<ManifestProfile>,
 }
 
@@ -53,11 +54,11 @@ pub(super) fn encode(manifest: &Manifest) -> Result<Vec<u8>> {
     if manifest
         .targets
         .iter()
-        .all(|target| target.active_profile_known)
+        .all(|target| target.active_profile != ActiveProfile::Unspecified)
     {
         bytes.extend_from_slice(ACTIVE_TRAILER);
         for target in &manifest.targets {
-            write_optional_string(&mut bytes, target.active_profile.as_deref())?;
+            write_optional_string(&mut bytes, target.active_profile.name())?;
         }
     }
     Ok(bytes)
@@ -103,8 +104,7 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
         targets.push(ManifestTarget {
             target,
             target_config,
-            active_profile: None,
-            active_profile_known: false,
+            active_profile: ActiveProfile::Unspecified,
             profiles,
         });
     }
@@ -115,8 +115,7 @@ pub(super) fn decode(data: &[u8]) -> Result<Manifest> {
             );
         }
         for target in &mut targets {
-            target.active_profile = reader.read_optional_string()?;
-            target.active_profile_known = true;
+            target.active_profile = reader.read_optional_string()?.into();
         }
     }
     reader.finish()?;
@@ -322,8 +321,7 @@ mod tests {
             targets: vec![ManifestTarget {
                 target: "codex".to_string(),
                 target_config: None,
-                active_profile: Some("gpt".to_string()),
-                active_profile_known: true,
+                active_profile: ActiveProfile::Named("gpt".to_string()),
                 profiles: vec![ManifestProfile {
                     name: "gpt".to_string(),
                     resources: vec![0, 1],
@@ -335,7 +333,10 @@ mod tests {
         assert!(!encoded.windows(4).any(|window| window == b"name"));
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded.targets[0].target, "codex");
-        assert_eq!(decoded.targets[0].active_profile.as_deref(), Some("gpt"));
+        assert_eq!(
+            decoded.targets[0].active_profile,
+            ActiveProfile::Named("gpt".into())
+        );
         assert_eq!(decoded.targets[0].profiles[0].resources, vec![0, 1]);
     }
 
@@ -357,12 +358,30 @@ mod tests {
             targets: vec![ManifestTarget {
                 target: "demo-id".to_string(),
                 target_config: Some(config.clone()),
-                active_profile: None,
-                active_profile_known: true,
+                active_profile: ActiveProfile::None,
                 profiles: vec![],
             }],
         };
         let decoded = decode(&encode(&manifest).unwrap()).unwrap();
         assert_eq!(decoded.targets[0].target_config.as_ref(), Some(&config));
+    }
+
+    #[test]
+    fn legacy_activation_metadata_differs_from_an_explicit_clear() {
+        let legacy = b"CPMF\x04\x01\x05codex\x00\x00";
+        let mut manifest = decode(legacy).unwrap();
+        assert_eq!(
+            manifest.targets[0].active_profile,
+            ActiveProfile::Unspecified
+        );
+        assert_eq!(encode(&manifest).unwrap(), legacy);
+
+        let explicit_clear = [legacy.as_slice(), b"ACTV\x00"].concat();
+        manifest.targets[0].active_profile = ActiveProfile::None;
+        assert_eq!(encode(&manifest).unwrap(), explicit_clear);
+        assert_eq!(
+            decode(&explicit_clear).unwrap().targets[0].active_profile,
+            ActiveProfile::None
+        );
     }
 }

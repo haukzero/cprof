@@ -1,3 +1,5 @@
+use crate::profile::activation::Status;
+
 use super::UnpackPlan;
 
 /// Describes the targets that were unpacked after a successful commit.
@@ -21,6 +23,7 @@ pub(crate) enum ChangeSubject {
     TargetDefinition { target: String },
     Profile { target: String, profile: String },
     ActiveProfile { target: String, profile: String },
+    ActiveConfiguration { target: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,9 +42,9 @@ pub(crate) struct UnpackedTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ActiveChange {
-    pub(crate) previous: Option<String>,
-    pub(crate) desired: Option<String>,
+pub(crate) enum ActiveChange {
+    Activate { previous: Status, profile: String },
+    Clear { previous: Status },
 }
 
 impl UnpackReport {
@@ -91,25 +94,8 @@ impl UnpackPlan {
                     },
                 });
             }
-            if let Some(active_change) = &plan.active_change {
-                let kind = match (&active_change.previous, &active_change.desired) {
-                    (None, Some(_)) => ChangeKind::Added,
-                    (Some(_), None) => ChangeKind::Deleted,
-                    (Some(_), Some(_)) => ChangeKind::Modified,
-                    (None, None) => unreachable!(),
-                };
-                let profile = active_change
-                    .desired
-                    .as_ref()
-                    .or(active_change.previous.as_ref())
-                    .expect("active change has a profile");
-                changes.push(UnpackChange {
-                    kind,
-                    subject: ChangeSubject::ActiveProfile {
-                        target: plan.target.id.clone(),
-                        profile: profile.clone(),
-                    },
-                });
+            if let Some(activation) = &plan.activation {
+                changes.push(activation.change.preview(&plan.target.id));
             }
         }
         changes.sort_by(|left, right| {
@@ -122,10 +108,39 @@ impl UnpackPlan {
     }
 }
 
+impl ActiveChange {
+    fn preview(&self, target: &str) -> UnpackChange {
+        let (kind, profile) = match self {
+            Self::Activate { previous, profile } => (
+                if *previous == Status::NoFiles {
+                    ChangeKind::Added
+                } else {
+                    ChangeKind::Modified
+                },
+                Some(profile.as_str()),
+            ),
+            Self::Clear { previous } => (ChangeKind::Deleted, previous.active_name()),
+        };
+        UnpackChange {
+            kind,
+            subject: match profile {
+                Some(profile) => ChangeSubject::ActiveProfile {
+                    target: target.to_string(),
+                    profile: profile.to_string(),
+                },
+                None => ChangeSubject::ActiveConfiguration {
+                    target: target.to_string(),
+                },
+            },
+        }
+    }
+}
+
 fn change_target(subject: &ChangeSubject) -> &str {
     match subject {
         ChangeSubject::TargetDefinition { target }
         | ChangeSubject::Profile { target, .. }
-        | ChangeSubject::ActiveProfile { target, .. } => target,
+        | ChangeSubject::ActiveProfile { target, .. }
+        | ChangeSubject::ActiveConfiguration { target } => target,
     }
 }

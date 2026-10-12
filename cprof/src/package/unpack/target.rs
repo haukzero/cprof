@@ -6,18 +6,18 @@ use std::sync::Arc;
 use crate::config;
 use crate::error::{AppError, IoContext, PackageError, PathError, Result};
 use crate::filesystem::transaction::PathTransaction;
-use crate::package::PackageProfile;
-use crate::profile::{self, activation, storage};
+use crate::package::{ActiveProfile, PackageProfile};
+use crate::profile::{self, storage};
 use crate::targets::TargetSpec;
 
-use super::{ActiveChange, UnpackInteraction, UnpackMode, UnpackedTarget};
+use super::activation::ActivationPlan;
+use super::{UnpackInteraction, UnpackMode, UnpackedTarget};
 
 pub(super) struct TargetPlan {
     pub(super) target: Arc<TargetSpec>,
     pub(super) profiles: Vec<PlannedProfile>,
     pub(super) removed: Vec<String>,
-    pub(super) active_change: Option<ActiveChange>,
-    active_resources: Option<BTreeSet<String>>,
+    pub(super) activation: Option<ActivationPlan>,
     unchanged: usize,
     skipped: usize,
 }
@@ -36,17 +36,16 @@ impl TargetPlan {
     pub(super) fn prepare(
         target: Arc<TargetSpec>,
         profiles: Vec<PackageProfile>,
-        desired_active: Option<String>,
-        active_profile_known: bool,
+        desired_active: ActiveProfile,
         mode: UnpackMode,
         interaction: &mut impl UnpackInteraction,
     ) -> Result<Self> {
         let mut unchanged = 0;
         if mode == UnpackMode::Mirror
-            && let Some(active_profile) = desired_active.as_deref()
+            && let ActiveProfile::Named(active_profile) = &desired_active
             && !profiles
                 .iter()
-                .any(|profile| profile.name == active_profile)
+                .any(|profile| profile.name == *active_profile)
         {
             return Err(PackageError::Invalid(format!(
                 "Active profile '{active_profile}' is not included for target '{}'",
@@ -87,46 +86,8 @@ impl TargetPlan {
         } else {
             Vec::new()
         };
-        let active_change = if mode == UnpackMode::Mirror && active_profile_known {
-            let status = activation::status(&target)?;
-            let previous = status.active_name().map(str::to_owned);
-            let changed = match desired_active.as_deref() {
-                Some(name) => previous.as_deref() != Some(name),
-                None => !matches!(status, activation::Status::NoFiles),
-            };
-            changed.then_some(ActiveChange {
-                previous,
-                desired: desired_active.clone(),
-            })
-        } else if mode == UnpackMode::Mirror {
-            let status = activation::status(&target)?;
-            let previous = status.active_name().map(str::to_owned);
-            let removed_active = previous
-                .as_ref()
-                .is_some_and(|name| removed_candidates.contains(name));
-            removed_active.then_some(ActiveChange {
-                previous,
-                desired: None,
-            })
-        } else {
-            None
-        };
-        let active_resources = active_profile_known
-            .then_some(desired_active.as_ref())
-            .flatten()
-            .and_then(|active| {
-                profiles
-                    .iter()
-                    .find(|profile| &profile.name == active)
-                    .map(|profile| {
-                        profile
-                            .resources
-                            .iter()
-                            .map(|resource| resource.spec.key.clone())
-                            .collect()
-                    })
-            });
-        if !candidates.is_empty() || !removed_candidates.is_empty() || active_change.is_some() {
+        let began = !candidates.is_empty() || !removed_candidates.is_empty();
+        if began {
             interaction.begin_target(&target.id);
         }
 
@@ -156,12 +117,19 @@ impl TargetPlan {
                 removed.push(name);
             }
         }
+        let activation = if mode == UnpackMode::Mirror {
+            ActivationPlan::prepare(&target, &desired_active, &planned, &removed)?
+        } else {
+            None
+        };
+        if !began && activation.is_some() {
+            interaction.begin_target(&target.id);
+        }
         Ok(Self {
             target,
             profiles: planned,
             removed,
-            active_change,
-            active_resources,
+            activation,
             unchanged,
             skipped,
         })
@@ -180,14 +148,8 @@ impl TargetPlan {
         for name in &self.removed {
             storage::stage_delete(transaction, &self.target, name)?;
         }
-        if let Some(active_change) = &self.active_change {
-            activation::stage_switch(
-                transaction,
-                &self.target,
-                active_change.desired.as_deref(),
-                true,
-                self.active_resources.as_ref(),
-            )?;
+        if let Some(activation) = &self.activation {
+            activation.links.stage(transaction)?;
         }
         Ok(())
     }
@@ -201,7 +163,10 @@ impl TargetPlan {
                 .map(|profile| profile.package.name.clone())
                 .collect(),
             removed: self.removed.clone(),
-            active_change: self.active_change.clone(),
+            active_change: self
+                .activation
+                .as_ref()
+                .map(|activation| activation.change.clone()),
             unchanged: self.unchanged,
             skipped: self.skipped,
         }
