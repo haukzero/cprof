@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 
 use crate::cli;
-use crate::config::home;
-use crate::error::{AppError, TargetError};
+use crate::error::{AppError, ConfigError, TargetError};
 
 use super::{
     ExternalResourceConfig, ExternalTargetConfig, ExtraTarget, merge_external_configs,
-    spec_from_external_config,
+    parse_external_configs, serialize_external_configs, spec_from_external_config,
+    validate_environment,
 };
 
 #[test]
@@ -167,12 +169,6 @@ fn resource_paths_require_one_safe_active_path() {
             Some(".config/name"),
             Some("relative/name"),
         ),
-        resource(
-            "r",
-            "settings.json",
-            Some(".config/name"),
-            Some("/tmp/other"),
-        ),
     ];
     for resource in invalid {
         assert!(spec_from_external_config(&target(vec![resource])).is_err());
@@ -180,9 +176,9 @@ fn resource_paths_require_one_safe_active_path() {
 }
 
 #[test]
-fn absolute_active_path_is_supported_and_same_path_is_accepted() {
-    let home = home::dir().unwrap();
-    let absolute = home.join(".config/demo/settings.json");
+fn dual_active_paths_are_preserved_in_the_spec() {
+    let directory = tempfile::tempdir().unwrap();
+    let absolute = directory.path().join(".config/demo/settings.json");
     let config = target(vec![resource(
         "settings",
         "settings.json",
@@ -245,5 +241,66 @@ fn target_and_resource_components_are_rejected() {
         resource("r", "settings.json", Some(""), None),
     ] {
         assert!(spec_from_external_config(&target(vec![invalid])).is_err());
+    }
+}
+
+#[test]
+fn parsing_and_serialization_do_not_inspect_the_active_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let active = directory.path().join("settings");
+    fs::create_dir(&active).unwrap();
+    let config = target(vec![resource(
+        "settings",
+        "settings",
+        None,
+        Some(active.to_str().unwrap()),
+    )]);
+    let configs = BTreeMap::from([(config.name.clone(), config)]);
+    let bytes = serialize_external_configs(&configs).unwrap();
+    let parsed = parse_external_configs(&bytes, Path::new("config.toml")).unwrap();
+    assert_eq!(parsed, configs);
+    assert!(validate_environment(&parsed).is_err());
+    fs::remove_dir(&active).unwrap();
+    validate_environment(&parsed).unwrap();
+    assert_eq!(serialize_external_configs(&parsed).unwrap(), bytes);
+}
+
+#[test]
+fn parse_errors_keep_the_supplied_document_path() {
+    let path = Path::new("draft.toml");
+    assert!(matches!(parse_external_configs(b"[broken", path),
+        Err(AppError::Config(ConfigError::Parse { path: reported, .. })) if reported == path));
+    assert!(matches!(parse_external_configs(&[0xff], path),
+        Err(AppError::Config(ConfigError::Encoding { path: reported, .. })) if reported == path));
+}
+
+#[test]
+fn environment_checks_apply_to_the_definition_selected_during_merge() {
+    let directory = tempfile::tempdir().unwrap();
+    let local_path = directory.path().join("local");
+    let incoming_path = directory.path().join("blocked");
+    fs::create_dir(&incoming_path).unwrap();
+    let local = target(vec![resource(
+        "settings",
+        "settings",
+        None,
+        Some(local_path.to_str().unwrap()),
+    )]);
+    let incoming = target(vec![resource(
+        "settings",
+        "settings",
+        None,
+        Some(incoming_path.to_str().unwrap()),
+    )]);
+    let local = BTreeMap::from([(local.name.clone(), local)]);
+    for use_packaged in [false, true] {
+        let mut asked = 0;
+        let merged = merge_external_configs(local.clone(), std::slice::from_ref(&incoming), |_| {
+            asked += 1;
+            Ok(use_packaged)
+        })
+        .unwrap();
+        assert_eq!(asked, 1);
+        assert_eq!(validate_environment(&merged).is_ok(), !use_packaged);
     }
 }

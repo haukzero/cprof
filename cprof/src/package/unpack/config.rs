@@ -48,7 +48,7 @@ pub(super) fn merge_target_configs(
         .iter()
         .filter_map(|package| package.target_config.clone())
         .collect::<Vec<_>>();
-    match mode {
+    let configs = match mode {
         UnpackMode::Merge => external::merge_external_configs(
             targets.external_configs().clone(),
             &packaged,
@@ -59,7 +59,9 @@ pub(super) fn merge_target_configs(
             &packaged,
             target_id,
         ),
-    }
+    }?;
+    external::validate_environment(&configs)?;
+    Ok(configs)
 }
 
 pub(super) fn resolve_target(

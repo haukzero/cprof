@@ -51,11 +51,12 @@ pub(crate) fn extra(editor: EditorOptions) -> Result<()> {
     WriteSession::configuration()?.run(|| {
         let path = config::extra_target_file()?;
         let mut session = EditSession::new(editor.editor, editor.editor_args)?;
-        session.edit_or_create(
-            &path,
-            DEFAULT_TEMPLATE,
-            external::validate_external_configs_content,
-        )?;
+        session.edit_or_create(&path, DEFAULT_TEMPLATE, |bytes| {
+            let configs = external::parse_external_configs(bytes, &path)?;
+            external::validate_environment(&configs)?;
+            super::config::warn_redundant_paths(&configs);
+            Ok(())
+        })?;
         session.commit()?;
         Ok(())
     })

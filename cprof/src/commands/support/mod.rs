@@ -4,6 +4,7 @@
 
 pub(crate) mod adopt;
 pub(crate) mod clean;
+pub(crate) mod config;
 pub(crate) mod create;
 pub(crate) mod edit;
 pub(crate) mod pack;

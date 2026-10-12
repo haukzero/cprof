@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli;
 use crate::config::{self, home, paths};
-use crate::error::{ConfigError, IoContext, Result, TargetError};
+use crate::error::{ConfigError, IoContext, PathError, Result, TargetError};
 use crate::filesystem::transaction::PathTransaction;
 use crate::format::Format;
-use crate::ui::style;
 
 use super::{BUILTIN_TARGETS, ResourceSpec, TargetSpec};
 
@@ -74,7 +73,7 @@ impl ExternalTargetConfig {
         self.id.as_deref().unwrap_or(&self.name)
     }
 
-    fn validate(&self, command_names: &[String], home: &Path) -> Result<()> {
+    fn validate(&self, command_names: &[String]) -> Result<()> {
         let target_id = self.resolved_id();
         // Validate both the table name and resolved id.  The table name is
         // retained in package definitions and must not be able to smuggle a
@@ -126,15 +125,43 @@ impl ExternalTargetConfig {
                 .into());
             }
 
-            let active_path = resource.effective_active_path(target_id, home)?;
-            if let Some(previous) = active_paths.insert(active_path, resource.resolved_key()) {
+            let relative = resource
+                .active_path
+                .as_deref()
+                .map(paths::relative_active_path);
+            let absolute = resource
+                .absolute_active_path
+                .as_deref()
+                .map(paths::absolute_active_path);
+            if relative.is_none() && absolute.is_none() {
                 return Err(TargetError::Conflict(format!(
-                    "target '{}' declares resources '{}' and '{}' with the same active path",
+                    "target '{}' resource '{}': {}",
                     target_id,
-                    previous,
-                    resource.resolved_key()
+                    resource.resolved_key(),
+                    PathError::InvalidActivePath(
+                        "must define active_path or absolute_active_path".to_string()
+                    )
                 ))
                 .into());
+            }
+            for path in relative.into_iter().chain(absolute) {
+                let path = path.map_err(|error| {
+                    TargetError::Conflict(format!(
+                        "target '{}' resource '{}': {}",
+                        target_id,
+                        resource.resolved_key(),
+                        error
+                    ))
+                })?;
+                if let Some(previous) = active_paths.insert(path, resource.resolved_key()) {
+                    return Err(TargetError::Conflict(format!(
+                        "target '{}' declares resources '{}' and '{}' with the same active path",
+                        target_id,
+                        previous,
+                        resource.resolved_key()
+                    ))
+                    .into());
+                }
             }
         }
         Ok(())
@@ -173,7 +200,7 @@ impl ExternalTargetConfig {
 }
 
 impl ExternalResourceConfig {
-    fn resolved_key(&self) -> &str {
+    pub(crate) fn resolved_key(&self) -> &str {
         self.key.as_deref().unwrap_or(&self.filename)
     }
 
@@ -199,13 +226,6 @@ impl ExternalResourceConfig {
             ))
         })?;
 
-        if self.active_path.is_some() && self.absolute_active_path.is_some() {
-            style::warning(format!(
-                "Target '{target_id}' resource '{}' sets active_path and absolute_active_path to the same path ('{}')",
-                self.resolved_key(),
-                path.display()
-            ));
-        }
         paths::path_identity(&path)
     }
 }
@@ -244,7 +264,6 @@ impl ExternalResourceConfig {
 
 fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -> Result<()> {
     let command_names = cli::command_names();
-    let home = home::dir()?;
     let mut ids = HashSet::new();
     for (name, config) in configs {
         // The TOML table key is the external definition's name and is also
@@ -259,7 +278,7 @@ fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -
             ))
             .into());
         }
-        config.validate(command_names, &home)?;
+        config.validate(command_names)?;
         if !ids.insert(config.resolved_id()) {
             return Err(TargetError::Conflict(format!(
                 "target id '{}' declared by '{name}' conflicts with an existing target",
@@ -271,11 +290,31 @@ fn validate_external_configs(configs: &BTreeMap<String, ExternalTargetConfig>) -
     Ok(())
 }
 
-/// Validate one embedded or local definition with the same rules used for the
-/// complete TOML map. Package manifests use this boundary directly so a
-/// malformed embedded definition cannot depend on the caller's merge mode.
+/// Check the definition itself without reading HOME or inspecting the filesystem.
 pub(crate) fn validate_external_config(config: &ExternalTargetConfig) -> Result<()> {
-    config.validate(cli::command_names(), &home::dir()?)
+    config.validate(cli::command_names())
+}
+
+/// Check validated definitions against the application's HOME and current filesystem.
+pub(crate) fn validate_environment(configs: &BTreeMap<String, ExternalTargetConfig>) -> Result<()> {
+    let home = home::dir()?;
+    for config in configs.values() {
+        let target_id = config.resolved_id();
+        let mut active_paths = HashMap::new();
+        for resource in &config.resources {
+            let path = resource.effective_active_path(target_id, &home)?;
+            if let Some(previous) = active_paths.insert(path, resource.resolved_key()) {
+                return Err(TargetError::Conflict(format!(
+                    "target '{}' declares resources '{}' and '{}' with the same active path",
+                    target_id,
+                    previous,
+                    resource.resolved_key()
+                ))
+                .into());
+            }
+        }
+    }
+    Ok(())
 }
 
 // Keep validation at the read/write boundary: unpack also accesses configs without all().
@@ -284,14 +323,13 @@ pub(crate) fn read_external_configs() -> Result<BTreeMap<String, ExternalTargetC
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
-    parse_external_configs(&fs::read(&path).with_path(&path)?, &path)
+    let configs = parse_external_configs(&fs::read(&path).with_path(&path)?, &path)?;
+    validate_environment(&configs)?;
+    Ok(configs)
 }
 
-pub(crate) fn validate_external_configs_content(content: &[u8]) -> Result<()> {
-    parse_external_configs(content, &config::extra_target_file()?).map(|_| ())
-}
-
-fn parse_external_configs(
+/// Parse and validate definitions without inspecting their active paths on disk.
+pub(crate) fn parse_external_configs(
     content: &[u8],
     path: &Path,
 ) -> Result<BTreeMap<String, ExternalTargetConfig>> {
@@ -322,6 +360,7 @@ pub(crate) fn stage_external_configs(
     configs: &BTreeMap<String, ExternalTargetConfig>,
 ) -> Result<()> {
     let content = serialize_external_configs(configs)?;
+    validate_environment(configs)?;
     let path = config::extra_target_file()?;
     transaction
         .stage_file(&path, "stage", &content, path.exists())
@@ -371,9 +410,8 @@ where
     // directly instead of going through the TOML/manifest readers.
     validate_external_configs(&local)?;
     let command_names = cli::command_names();
-    let home = home::dir()?;
     for config in packaged {
-        config.validate(command_names, &home)?;
+        config.validate(command_names)?;
     }
 
     for incoming in packaged {
@@ -451,9 +489,8 @@ pub(crate) fn replace_external_configs(
     selected_target: Option<&str>,
 ) -> Result<BTreeMap<String, ExternalTargetConfig>> {
     let command_names = cli::command_names();
-    let home = home::dir()?;
     for config in packaged {
-        config.validate(command_names, &home)?;
+        config.validate(command_names)?;
     }
 
     if selected_target.is_none() {

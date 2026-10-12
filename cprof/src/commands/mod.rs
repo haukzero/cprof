@@ -11,30 +11,32 @@ pub mod root;
 pub(crate) mod support;
 pub mod target;
 
+use support::config::load_targets;
+
 #[cprof_macros::command_dispatch]
 pub fn dispatch_root(command: RootCommand) -> Result<()> {
     match command {
         RootCommand::Claude(args) => run_target_command("claude", args.command)?,
         RootCommand::Codex(args) => run_target_command("codex", args.command)?,
         RootCommand::Pack(args) => {
-            let targets = TargetRepository::load()?;
+            let targets = load_targets()?;
             root::pack::run(&targets, args.options.save, args.select, args.options.ascii)?;
         }
         RootCommand::Unpack(args) => {
-            let targets = TargetRepository::load()?;
+            let targets = load_targets()?;
             root::unpack::run(&targets, args.path, args.force, args.dry_run, args.mirror)?;
         }
         RootCommand::Remove(args) => {
-            let targets = TargetRepository::load()?;
+            let targets = load_targets()?;
             root::remove::run(&targets, args.names, args.options.force, args.options.ascii)?;
         }
         RootCommand::Clean(args) => {
-            let targets = TargetRepository::load()?;
+            let targets = load_targets()?;
             root::clean::run(&targets, args.force, args.extra_toml)?;
         }
         RootCommand::EditExtra(args) => root::edit_extra::run(args.editor)?,
         RootCommand::Targets(args) => {
-            let targets = TargetRepository::load()?;
+            let targets = load_targets()?;
             root::targets::run(&targets, args.json)?;
         }
         RootCommand::External(args) => run_external_command(args)?,
@@ -97,7 +99,7 @@ fn dispatch_target(
 }
 
 fn run_target_command(target_id: &str, command: TargetCommand) -> Result<()> {
-    let targets = TargetRepository::load()?;
+    let targets = load_targets()?;
     dispatch_target(&targets, target_id, command)
 }
 
@@ -106,7 +108,7 @@ fn run_external_command(args: Vec<String>) -> Result<()> {
         .first()
         .cloned()
         .ok_or_else(|| clap::Error::raw(ErrorKind::MissingSubcommand, "Missing target command"))?;
-    let targets = TargetRepository::load()?;
+    let targets = load_targets()?;
     targets.get(&target_id)?;
     let command_name = format!("cprof {target_id}");
     let command = TargetCli::try_parse_from(once(command_name).chain(args.into_iter().skip(1)))?;
