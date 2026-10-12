@@ -74,6 +74,18 @@ impl LinkPlan {
         Ok(Self { changes })
     }
 
+    pub(crate) fn remove_profile(target: &TargetSpec, name: &str) -> Result<Self> {
+        let mut changes = Vec::new();
+        for resource in &target.resources {
+            let path = config::active_resource(target, resource)?;
+            if matches!(read(target, resource, &path)?, State::Managed(profile) if profile == name)
+            {
+                changes.push(LinkChange::Remove(path));
+            }
+        }
+        Ok(Self { changes })
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.changes.is_empty()
     }

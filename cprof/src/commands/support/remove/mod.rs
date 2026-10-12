@@ -1,5 +1,6 @@
 use crate::commands::support::{selection::Scope, write::WriteSession};
 use crate::error::Result;
+use crate::filesystem::transaction::PathTransaction;
 use crate::profile::{activation, storage};
 use crate::targets::TargetRepository;
 use crate::ui::tree::TreeStyle;
@@ -49,10 +50,20 @@ pub(crate) fn run(
             removals.push((selection, active));
         }
 
+        PathTransaction::prepare(|transaction| {
+            for (selection, _) in &removals {
+                for name in &selection.profiles {
+                    activation::LinkPlan::remove_profile(&selection.target, name)?
+                        .stage(transaction)?;
+                    storage::stage_delete(transaction, &selection.target, name)?;
+                }
+            }
+            Ok(())
+        })?
+        .commit()?;
+
         for (selection, active) in removals {
             for name in selection.profiles {
-                activation::remove_profile_links(&selection.target, &name)?;
-                storage::delete(&selection.target, &name)?;
                 println!(
                     "Removed profile '{}'{}",
                     scope.label(&selection.target, &name),

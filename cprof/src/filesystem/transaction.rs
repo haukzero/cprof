@@ -51,7 +51,7 @@ impl PathTransaction {
         replace: bool,
     ) -> Result<PathBuf> {
         let staging = create_staged_file(destination, label, content)?;
-        self.add_operation(destination, Some(staging.clone()), replace)?;
+        self.add_operation(destination, PathChange::Write(staging.clone()), replace)?;
         Ok(staging)
     }
 
@@ -63,7 +63,7 @@ impl PathTransaction {
     ) -> Result<PathBuf> {
         let staging = create_edit_file(destination, content)
             .map_err(|source| AppError::io(&edit_draft_path(destination), source))?;
-        self.add_operation(destination, Some(staging.clone()), replace)?;
+        self.add_operation(destination, PathChange::Write(staging.clone()), replace)?;
         Ok(staging)
     }
 
@@ -82,7 +82,7 @@ impl PathTransaction {
                 Err(error) => return Err(AppError::io(&path, error)),
             }
         };
-        self.add_operation(destination, Some(staging.clone()), replace)?;
+        self.add_operation(destination, PathChange::Write(staging.clone()), replace)?;
         Ok(staging)
     }
 
@@ -102,11 +102,19 @@ impl PathTransaction {
                 Err(error) => return Err(error),
             }
         };
-        self.add_operation(destination, Some(staging), replace)
+        self.add_operation(destination, PathChange::Write(staging), replace)
     }
 
     pub(crate) fn stage_remove(&mut self, destination: &Path) -> Result<()> {
-        self.add_operation(destination, None, true)
+        self.add_operation(destination, PathChange::Remove, true)
+    }
+
+    /// Keep the original in place until commit; rollback moves it back intact.
+    pub(crate) fn stage_rename(&mut self, source: &Path, destination: &Path) -> Result<()> {
+        if !path_exists(source)? {
+            return Err(transaction_conflict(source, true));
+        }
+        self.add_operation(destination, PathChange::Rename(source.to_path_buf()), false)
     }
 
     pub(crate) fn discard_last(&mut self) -> Result<()> {
@@ -117,13 +125,13 @@ impl PathTransaction {
     fn add_operation(
         &mut self,
         destination: &Path,
-        staging: Option<PathBuf>,
+        change: PathChange,
         replace: bool,
     ) -> Result<()> {
         let operation = PathOperation {
             destination: destination.to_path_buf(),
             rollback: temporary_sibling(destination, "rollback"),
-            staging,
+            change,
             replace,
             backed_up: false,
             applied: false,
@@ -194,10 +202,16 @@ impl PathTransaction {
     fn sync_parents(&self) -> Result<()> {
         let mut synced = Vec::new();
         for operation in &self.operations {
-            let parent = parent(&operation.destination)?;
-            if !synced.contains(&parent) {
-                sync_parent(&operation.destination)?;
-                synced.push(parent);
+            let origin = match &operation.change {
+                PathChange::Rename(path) => Some(path),
+                _ => None,
+            };
+            for path in std::iter::once(&operation.destination).chain(origin) {
+                let parent = parent(path)?;
+                if !synced.contains(&parent) {
+                    sync_parent(path)?;
+                    synced.push(parent);
+                }
             }
         }
         Ok(())
@@ -215,11 +229,17 @@ impl Drop for PathTransaction {
 
 struct PathOperation {
     destination: PathBuf,
-    staging: Option<PathBuf>,
+    change: PathChange,
     rollback: PathBuf,
     replace: bool,
     backed_up: bool,
     applied: bool,
+}
+
+enum PathChange {
+    Write(PathBuf),
+    Remove,
+    Rename(PathBuf),
 }
 
 impl PathOperation {
@@ -235,8 +255,12 @@ impl PathOperation {
             .into());
         }
 
-        if let Some(staging) = &self.staging {
-            sync_path(staging)?;
+        match &self.change {
+            PathChange::Write(path) => sync_path(path)?,
+            PathChange::Rename(path) if !path_exists(path)? => {
+                return Err(transaction_conflict(path, true));
+            }
+            _ => {}
         }
         if self.replace {
             if let Err(error) = fs::rename(&self.destination, &self.rollback) {
@@ -247,8 +271,8 @@ impl PathOperation {
             }
             self.backed_up = true;
         }
-        if let Some(staging) = &self.staging {
-            if let Err(error) = fs::rename(staging, &self.destination) {
+        if let PathChange::Write(source) | PathChange::Rename(source) = &self.change {
+            if let Err(error) = fs::rename(source, &self.destination) {
                 return match path_exists(&self.destination) {
                     Ok(exists) if exists != self.replace => {
                         Err(transaction_conflict(&self.destination, self.replace))
@@ -264,7 +288,16 @@ impl PathOperation {
     fn rollback(&mut self) -> Vec<AppError> {
         let mut errors = Vec::new();
         if self.applied {
-            match remove_any_if_exists(&self.destination) {
+            let recovery = match &self.change {
+                PathChange::Rename(path) => path_exists(path).and_then(|exists| {
+                    if exists {
+                        return Err(transaction_conflict(path, false));
+                    }
+                    fs::rename(&self.destination, path).with_path(path)
+                }),
+                _ => remove_any_if_exists(&self.destination),
+            };
+            match recovery {
                 Ok(()) => self.applied = false,
                 Err(error) => errors.push(error),
             }
@@ -290,7 +323,10 @@ impl PathOperation {
     }
 
     fn clear_staging(&self) -> Result<()> {
-        self.staging.as_deref().map_or(Ok(()), remove_any_if_exists)
+        match &self.change {
+            PathChange::Write(path) => remove_any_if_exists(path),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -385,6 +421,159 @@ mod tests {
         assert!(!removed.exists());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
         assert_eq!(fs::read_to_string(conflict).unwrap(), "concurrent");
+    }
+
+    #[test]
+    fn staged_rename_leaves_the_original_in_place_on_cancel_or_drop() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("old");
+        let destination = directory.path().join("new");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("unlisted file"), "original").unwrap();
+
+        let transaction =
+            PathTransaction::prepare(|transaction| transaction.stage_rename(&source, &destination))
+                .unwrap();
+        assert!(source.is_dir());
+        assert!(!destination.exists());
+        drop(transaction);
+        assert_eq!(
+            fs::read_to_string(source.join("unlisted file")).unwrap(),
+            "original"
+        );
+
+        let result = PathTransaction::prepare(|transaction| {
+            transaction.stage_rename(&source, &destination)?;
+            transaction.stage_remove(&directory.path().join("missing"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_to_string(source.join("unlisted file")).unwrap(),
+            "original"
+        );
+    }
+
+    #[test]
+    fn rename_conflicts_preserve_both_original_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("old");
+        let destination = directory.path().join("new");
+        fs::write(&source, "original").unwrap();
+        let transaction =
+            PathTransaction::prepare(|transaction| transaction.stage_rename(&source, &destination))
+                .unwrap();
+        fs::write(&destination, "concurrent").unwrap();
+        assert!(transaction.commit().is_err());
+        assert_eq!(fs::read_to_string(&source).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "concurrent");
+        assert!(
+            PathTransaction::prepare(|transaction| transaction.stage_rename(&source, &destination))
+                .is_err()
+        );
+        assert_eq!(fs::read_to_string(&source).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "concurrent");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
+
+    #[cprof_macros::windows_elevation]
+    #[test]
+    fn rename_and_link_changes_recover_together_after_a_later_conflict() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("old");
+        let destination = directory.path().join("new");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("settings"), "original").unwrap();
+        fs::write(source.join("unlisted file"), "retained").unwrap();
+        let link = directory.path().join("active");
+        let relative = Path::new("old").join("settings");
+        crate::filesystem::create_symlink(&relative, &link).unwrap();
+        let conflict = directory.path().join("conflict");
+        let transaction = PathTransaction::prepare(|transaction| {
+            transaction.stage_rename(&source, &destination)?;
+            transaction.stage_symlink(&link, &destination.join("settings"), true)?;
+            transaction.stage_file(&conflict, "stage", b"incoming", false)?;
+            Ok(())
+        })
+        .unwrap();
+        fs::write(&conflict, "concurrent").unwrap();
+
+        assert!(transaction.commit().is_err());
+        assert!(!destination.exists());
+        assert_eq!(fs::read_link(&link).unwrap(), relative);
+        assert_eq!(fs::read_to_string(&link).unwrap(), "original");
+        assert_eq!(
+            fs::read_to_string(source.join("unlisted file")).unwrap(),
+            "retained"
+        );
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 3);
+
+        PathTransaction::prepare(|transaction| {
+            transaction.stage_rename(&source, &destination)?;
+            transaction.stage_symlink(&link, &destination.join("settings"), true)
+        })
+        .unwrap()
+        .commit()
+        .unwrap();
+        assert!(!source.exists());
+        assert_eq!(fs::read_to_string(&link).unwrap(), "original");
+        assert_eq!(
+            fs::read_to_string(destination.join("unlisted file")).unwrap(),
+            "retained"
+        );
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 3);
+    }
+
+    #[test]
+    fn rename_recovery_preserves_an_unexpected_entry_at_the_original_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("old");
+        let destination = directory.path().join("new");
+        fs::write(&source, "original").unwrap();
+        let mut transaction =
+            PathTransaction::prepare(|transaction| transaction.stage_rename(&source, &destination))
+                .unwrap();
+        transaction.operations[0].apply().unwrap();
+        fs::write(&source, "concurrent").unwrap();
+
+        let error = transaction.cancel(TransactionError::Conflict("later failure".into()).into());
+        assert!(matches!(
+            error,
+            AppError::Transaction(TransactionError::RecoveryFailed { .. })
+        ));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "concurrent");
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "original");
+    }
+
+    #[cprof_macros::windows_elevation]
+    #[test]
+    fn batch_removal_restores_directories_links_and_configuration_on_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let profiles = directory.path().join("profiles");
+        fs::create_dir(&profiles).unwrap();
+        fs::write(profiles.join("settings"), "original").unwrap();
+        let link = directory.path().join("active");
+        let relative = Path::new("profiles").join("settings");
+        crate::filesystem::create_symlink(&relative, &link).unwrap();
+        let config = directory.path().join("extra-target.toml");
+        fs::write(&config, "[demo]\n").unwrap();
+        let conflict = directory.path().join("conflict");
+        let transaction = PathTransaction::prepare(|transaction| {
+            transaction.stage_remove(&link)?;
+            transaction.stage_remove(&profiles)?;
+            transaction.stage_remove(&config)?;
+            transaction.stage_file(&conflict, "stage", b"incoming", false)?;
+            Ok(())
+        })
+        .unwrap();
+        fs::write(&conflict, "concurrent").unwrap();
+
+        assert!(transaction.commit().is_err());
+        assert_eq!(fs::read_link(&link).unwrap(), relative);
+        assert_eq!(fs::read_to_string(&link).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&config).unwrap(), "[demo]\n");
+        assert_eq!(fs::read_to_string(&conflict).unwrap(), "concurrent");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 4);
     }
 
     #[test]

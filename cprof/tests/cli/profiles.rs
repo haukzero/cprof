@@ -90,7 +90,10 @@ fn rename_updates_an_active_profile_and_its_links() {
 #[test]
 fn rename_preserves_an_inactive_profile() {
     let home = TestHome::new();
-    home.codex_profile("old");
+    let old = home.codex_profile("old");
+    fs::create_dir(old.join("extra")).unwrap();
+    fs::write(old.join("extra/unlisted"), "retained").unwrap();
+    let permissions = fs::metadata(&old).unwrap().permissions();
     home.succeeds(&["codex", "rename", "old", "new"]);
     assert!(!home.path.join(".cprof/profiles/codex/old").exists());
     let profile = home.path.join(".cprof/profiles/codex/new");
@@ -99,7 +102,39 @@ fn rename_preserves_an_inactive_profile() {
         CONFIG
     );
     assert_eq!(fs::read_to_string(profile.join("auth.json")).unwrap(), AUTH);
+    assert_eq!(
+        fs::read_to_string(profile.join("extra/unlisted")).unwrap(),
+        "retained"
+    );
+    assert_eq!(fs::metadata(&profile).unwrap().permissions(), permissions);
     assert!(!home.path.join(".codex").exists());
+}
+
+#[cprof_macros::windows_elevation]
+#[test]
+fn rename_keeps_existing_links_when_the_profile_is_not_fully_active() {
+    for state in ["partial", "mixed", "unmanaged"] {
+        let home = TestHome::new();
+        let old = home.codex_profile("old");
+        let other = home.codex_profile("other");
+        home.succeeds(&["codex", "switch", "old"]);
+        let auth = home.path.join(".codex/auth.json");
+        fs::remove_file(&auth).unwrap();
+        match state {
+            "mixed" => crate::support::symlink(other.join("auth.json"), &auth).unwrap(),
+            "unmanaged" => fs::write(&auth, "unmanaged").unwrap(),
+            _ => {}
+        }
+        let config = home.path.join(".codex/config.toml");
+        let before = fs::read_link(&config).unwrap();
+        let auth_before = fs::read(&auth).ok();
+
+        home.succeeds(&["codex", "rename", "old", "new"]);
+        assert!(!old.exists());
+        assert!(home.path.join(".cprof/profiles/codex/new").is_dir());
+        assert_eq!(fs::read_link(&config).unwrap(), before);
+        assert_eq!(fs::read(&auth).ok(), auth_before);
+    }
 }
 
 #[test]

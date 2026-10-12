@@ -1,10 +1,9 @@
 //! Inspect and switch active resource links for stored profiles.
 
 use std::collections::BTreeSet;
-use std::fs;
 
 use crate::config;
-use crate::error::{IoContext, ProfileError, Result};
+use crate::error::{ProfileError, Result};
 use crate::filesystem::transaction::PathTransaction;
 use crate::targets::TargetSpec;
 
@@ -115,14 +114,7 @@ pub fn switch(target: &TargetSpec, name: &str, force: bool) -> Result<bool> {
 }
 
 pub fn remove_profile_links(target: &TargetSpec, name: &str) -> Result<bool> {
-    let mut removed = false;
-    for resource in &target.resources {
-        let link = config::active_resource(target, resource)?;
-        if matches!(links::read(target, resource, &link)?, links::State::Managed(profile) if profile == name)
-        {
-            fs::remove_file(&link).with_path(&link)?;
-            removed = true;
-        }
-    }
-    Ok(removed)
+    let links = LinkPlan::remove_profile(target, name)?;
+    PathTransaction::prepare(|transaction| links.stage(transaction))?.commit()?;
+    Ok(!links.is_empty())
 }

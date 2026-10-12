@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::support::TestHome;
+use crate::support::{TestHome, assert_failure, symlink};
 
 #[test]
 fn root_remove_combines_targets_and_profile_patterns_without_duplicates() {
@@ -163,4 +163,87 @@ fn empty_remove_trees_report_no_profiles_and_force_still_requires_a_selection() 
     }
     home.succeeds(&["remove", "codex"]);
     assert!(home.path.join(".cprof/profiles/claude/keep").is_dir());
+}
+
+#[cprof_macros::windows_elevation]
+#[test]
+fn removal_and_clean_failures_preserve_all_profiles_and_links() {
+    for args in [
+        &["demo", "remove", "work", "--force"][..],
+        &["remove", "claude", "demo", "--force"],
+        &["clean", "--extra-toml", "--force"],
+    ] {
+        let home = TestHome::new();
+        let config = "[demo]\n\
+            [[demo.resources]]\nfilename = 'first'\nactive_path = '.demo/first'\n\
+            [[demo.resources]]\nfilename = 'second'\nactive_path = '.demo/second'\n\
+            [[demo.resources]]\nfilename = 'third'\nactive_path = '.demo/third'\n";
+        home.set_config(config);
+        let claude = home.claude_profile("keep");
+        home.succeeds(&["claude", "switch", "keep"]);
+        let profile = home.write_profile("demo", "work", &[("first", "original")]);
+        let external = home.path.join("external");
+        fs::write(&external, "external").unwrap();
+        symlink(&external, profile.join("third")).unwrap();
+        fs::create_dir(home.path.join(".demo")).unwrap();
+        let first = home.path.join(".demo/first");
+        let third = home.path.join(".demo/third");
+        symlink(profile.join("first"), &first).unwrap();
+        fs::write(home.path.join(".demo/second"), "unmanaged").unwrap();
+        symlink(profile.join("third"), &third).unwrap();
+        // Status stops at the unmanaged second resource. Preparing removal of
+        // the third then fails because stored resources may not be symlinks.
+        let output = home.run(args);
+        assert_failure(&output, "Unsafe path");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!stdout.contains("Removed profile"), "{stdout}");
+        assert!(!stdout.contains("Cleaned "), "{stdout}");
+        assert!(claude.is_dir());
+        assert_eq!(home.succeeds(&["claude", "which"]), "keep\n");
+        assert_eq!(fs::read_link(&first).unwrap(), profile.join("first"));
+        assert_eq!(fs::read_to_string(&first).unwrap(), "original");
+        assert_eq!(fs::read_link(&third).unwrap(), profile.join("third"));
+        assert_eq!(fs::read_to_string(&external).unwrap(), "external");
+        assert_eq!(
+            fs::read_to_string(home.path.join(".demo/second")).unwrap(),
+            "unmanaged"
+        );
+        assert_eq!(fs::read_to_string(home.config_path()).unwrap(), config);
+        assert_eq!(
+            fs::read_dir(home.path.join(".cprof/profiles/claude"))
+                .unwrap()
+                .count(),
+            1
+        );
+        assert_eq!(
+            fs::read_dir(home.path.join(".cprof/profiles/demo"))
+                .unwrap()
+                .count(),
+            1
+        );
+    }
+}
+
+#[cprof_macros::windows_elevation]
+#[test]
+fn root_clean_commits_profiles_links_and_extra_config_together() {
+    let home = crate::support::unmanaged_codex();
+    home.set_config("[demo]\n");
+    home.claude_profile("active");
+    home.codex_profile("inactive");
+    home.write_profile("demo", "empty", &[]);
+    home.succeeds(&["claude", "switch", "active"]);
+
+    let output = home.succeeds(&["clean", "--extra-toml", "--force"]);
+    assert_eq!(
+        output.matches("Cleaned 1 profile(s)").count(),
+        3,
+        "{output}"
+    );
+    for target in ["claude", "codex", "demo"] {
+        assert!(!home.path.join(".cprof/profiles").join(target).exists());
+    }
+    assert!(!home.config_path().exists());
+    assert!(fs::symlink_metadata(home.path.join(".claude/settings.json")).is_err());
+    crate::support::assert_originals(&home);
 }

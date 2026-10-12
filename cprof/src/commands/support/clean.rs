@@ -1,8 +1,7 @@
-use std::fs;
-
 use crate::commands::support::selection::Scope;
 use crate::config;
-use crate::error::{IoContext, Result};
+use crate::error::Result;
+use crate::filesystem::transaction::PathTransaction;
 use crate::profile::{activation, storage};
 use crate::targets::{TargetRepository, TargetSpec};
 use crate::ui::{prompt, style};
@@ -32,33 +31,55 @@ fn clean_profiles(
 ) -> Result<()> {
     let targets = scope.targets(targets)?;
     WriteSession::targets(targets.iter().map(|target| target.id.as_str()))?.run(|| {
-        for target in targets {
-            if matches!(scope, Scope::Root) {
-                println!(
-                    "{}",
-                    style::heading(&format!("Cleaning target '{}':", target.id))
-                );
+        let mut cleaned = Vec::new();
+        let mut extra_config = None;
+        PathTransaction::prepare(|transaction| {
+            for target in targets {
+                if matches!(scope, Scope::Root) {
+                    println!(
+                        "{}",
+                        style::heading(&format!("Cleaning target '{}':", target.id))
+                    );
+                }
+                if let Some(count) = stage_clean_target(transaction, &target, force)? {
+                    cleaned.push((target.id.clone(), count));
+                }
             }
-            clean_target(&target, force)?;
-        }
+            if extra_toml {
+                let path = config::extra_target_file()?;
+                if path.exists() {
+                    transaction.stage_remove(&path)?;
+                    extra_config = Some(path);
+                }
+            }
+            Ok(())
+        })?
+        .commit()?;
 
-        if extra_toml {
-            let path = config::extra_target_file()?;
-            if path.exists() {
-                fs::remove_file(&path).with_path(&path)?;
-                println!("Removed '{}'", path.display());
-            }
+        for (id, count) in cleaned {
+            let message = match scope {
+                Scope::Root => format!("Cleaned {count} profile(s) from target '{id}'"),
+                Scope::Target(_) => format!("Cleaned {count} profile(s)"),
+            };
+            style::success(message);
+        }
+        if let Some(path) = extra_config {
+            println!("Removed '{}'", path.display());
         }
         Ok(())
     })
 }
 
-fn clean_target(target: &TargetSpec, force: bool) -> Result<()> {
+fn stage_clean_target(
+    transaction: &mut PathTransaction,
+    target: &TargetSpec,
+    force: bool,
+) -> Result<Option<usize>> {
     let profiles = storage::names(target)?;
     let active = activation::active_name(target)?;
     if profiles.is_empty() {
         println!("No profiles to clean.");
-        return Ok(());
+        return Ok(None);
     }
     style::warning("This will remove all profiles and active links:");
     for name in &profiles {
@@ -74,15 +95,14 @@ fn clean_target(target: &TargetSpec, force: bool) -> Result<()> {
     }
     if !force && !prompt::confirm("Continue?")? {
         println!("Cancelled.");
-        return Ok(());
+        return Ok(None);
     }
     for name in &profiles {
-        activation::remove_profile_links(target, name)?;
+        activation::LinkPlan::remove_profile(target, name)?.stage(transaction)?;
     }
     let dir = config::profiles_dir(target)?;
     if dir.exists() {
-        fs::remove_dir_all(&dir).with_path(&dir)?;
+        transaction.stage_remove(&dir)?;
     }
-    style::success(format!("Cleaned {} profile(s)", profiles.len()));
-    Ok(())
+    Ok(Some(profiles.len()))
 }
