@@ -64,9 +64,10 @@ fn dispatch_target(
         TargetCommand::Adopt { name } => target::adopt::run(&target, name),
         TargetCommand::Edit {
             name,
+            active,
             filename,
             editor,
-        } => target::edit::run(&target, name, filename, editor),
+        } => target::edit::run(&target, name, active, filename, editor),
         TargetCommand::Remove(args) => target::remove::run(
             targets,
             &target,

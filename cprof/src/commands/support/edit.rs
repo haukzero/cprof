@@ -27,7 +27,6 @@ pub(crate) fn profile(
     editor: EditorOptions,
 ) -> Result<bool> {
     write::target(target, || {
-        storage::require_exists(target, name)?;
         let resources: Vec<&ResourceSpec> = match filename {
             Some(filename) => vec![target.resource(filename)?],
             None => target.resources.iter().collect(),

@@ -2,6 +2,143 @@ use std::fs;
 
 use crate::support::{AUTH, CONFIG, INVALID_CONFIGS, TestHome, assert_failure};
 
+#[cprof_macros::windows_elevation]
+#[test]
+fn edit_active_selects_the_current_profile_and_warns_for_an_explicit_name() {
+    for selection in [
+        vec!["-a"],
+        vec!["--active"],
+        vec!["work", "-a"],
+        vec!["work", "--active"],
+    ] {
+        let home = TestHome::new();
+        let profile = home.codex_profile("work");
+        let other = home.codex_profile("other");
+        home.succeeds(&["codex", "switch", "work"]);
+        let editor = home.editor(
+            "case \"$1\" in\n*.toml) printf \"model = 'edited'\\n\" > \"$1\" ;;\n*) printf '{\"edited\":true}' > \"$1\" ;;\nesac\n",
+            "if /i \"%~x1\"==\".toml\" (\n>\"%~1\" echo model = 'edited'\n) else (\n>\"%~1\" echo {\"edited\":true}\n)\n",
+        );
+
+        let mut args = vec!["codex", "edit", "--editor", editor.to_str().unwrap()];
+        args.extend_from_slice(&selection);
+        let output = home.run(&args);
+        assert!(output.status.success(), "{output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if selection.contains(&"work") {
+            assert!(
+                stderr.contains("warning: Profile 'work' is already selected by --active"),
+                "{stderr}"
+            );
+        } else {
+            assert!(stderr.is_empty(), "{stderr}");
+        }
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Updated profile 'work'"));
+        for (filename, expected) in [
+            ("config.toml", "model = 'edited'"),
+            ("auth.json", "{\"edited\":true}"),
+        ] {
+            assert_eq!(
+                fs::read_to_string(profile.join(filename)).unwrap().trim(),
+                expected
+            );
+            let active = home.path.join(".codex").join(filename);
+            assert!(active.is_symlink());
+            assert_eq!(fs::read_to_string(active).unwrap().trim(), expected);
+        }
+        assert_eq!(
+            fs::read_to_string(other.join("config.toml")).unwrap(),
+            CONFIG
+        );
+        assert_eq!(fs::read_to_string(other.join("auth.json")).unwrap(), AUTH);
+        assert_eq!(home.succeeds(&["codex", "which"]).trim(), "work");
+    }
+}
+
+#[test]
+fn edit_active_requires_an_active_profile_before_launching_the_editor() {
+    for state in ["empty", "inactive", "unmanaged"] {
+        let home = TestHome::new();
+        if state != "empty" {
+            home.codex_profile("work");
+        }
+        if state == "unmanaged" {
+            fs::create_dir(home.path.join(".codex")).unwrap();
+            fs::write(home.path.join(".codex/config.toml"), CONFIG).unwrap();
+            fs::write(home.path.join(".codex/auth.json"), AUTH).unwrap();
+        }
+        let editor = home.editor("touch editor-started\n", "type nul > editor-started\n");
+        for flag in ["-a", "--active"] {
+            for name in [None, Some("work")] {
+                let mut args = vec!["codex", "edit", flag, "--editor", editor.to_str().unwrap()];
+                args.extend(name);
+                let expected = if state == "empty" && name.is_some() {
+                    "Profile 'work' not found"
+                } else {
+                    "No active profile for target 'codex'"
+                };
+                home.fails(&args, expected);
+                assert!(!home.path.join("editor-started").exists());
+            }
+        }
+    }
+}
+
+#[cprof_macros::windows_elevation]
+#[test]
+fn edit_active_rejects_a_different_name_before_launching_the_editor() {
+    let home = TestHome::new();
+    let active = home.codex_profile("work");
+    let other = home.codex_profile("other");
+    home.succeeds(&["codex", "switch", "work"]);
+    let editor = home.editor("touch editor-started\n", "type nul > editor-started\n");
+    for flag in ["-a", "--active"] {
+        for (name, expected) in [
+            ("other", "Profile 'other' is not the active profile"),
+            ("missing", "Profile 'missing' not found"),
+            ("../escape", "Invalid profile name '../escape'"),
+        ] {
+            let output = home.run(&[
+                "codex",
+                "edit",
+                name,
+                flag,
+                "--editor",
+                editor.to_str().unwrap(),
+            ]);
+            assert_failure(&output, expected);
+            if name == "other" {
+                assert_failure(&output, "active: 'work'");
+            }
+            assert!(!String::from_utf8_lossy(&output.stderr).contains("warning:"));
+            assert!(!home.path.join("editor-started").exists());
+        }
+    }
+    for profile in [active, other] {
+        assert_eq!(
+            fs::read_to_string(profile.join("config.toml")).unwrap(),
+            CONFIG
+        );
+        assert_eq!(fs::read_to_string(profile.join("auth.json")).unwrap(), AUTH);
+        assert_eq!(fs::read_dir(profile).unwrap().count(), 2);
+    }
+}
+
+#[test]
+fn edit_validates_explicit_names_with_or_without_active() {
+    let home = TestHome::new();
+    for flag in [None, Some("-a"), Some("--active")] {
+        for (name, expected) in [
+            ("missing", "Profile 'missing' not found"),
+            ("../escape", "Invalid profile name '../escape'"),
+        ] {
+            let mut args = vec!["codex", "edit", name];
+            args.extend(flag);
+            home.fails(&args, expected);
+        }
+    }
+}
+
 #[test]
 fn edit_extra_opens_invalid_configs_without_replacing_them() {
     let home = TestHome::new();

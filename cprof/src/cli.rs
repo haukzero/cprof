@@ -222,8 +222,11 @@ pub enum TargetCommand {
     },
     /// Edit an existing profile
     Edit {
-        /// Profile name (prompts if omitted)
+        /// Profile name (prompts if omitted unless --active is used)
         name: Option<String>,
+        /// Edit the currently active profile
+        #[arg(short, long)]
+        active: bool,
         /// Edit only this logical resource, for example "auth"
         #[arg(long)]
         filename: Option<String>,

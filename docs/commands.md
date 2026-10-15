@@ -23,13 +23,14 @@
 |------|------|
 | `cprof <target> create [name] [-c profile]` | 创建并编辑 profile, 可从已有 profile 复制 |
 | `cprof <target> adopt [name]` | 将当前未托管配置导入为新 profile 并激活 |
-| `cprof <target> edit [name] [--filename key]` | 编辑 profile |
+| `cprof <target> edit [name] [-a] [--filename key]` | 编辑 profile, `-a` 编辑当前激活的 profile |
 | `cprof <target> rename [old_name] [new_name]` | 重命名 profile |
 | `cprof <target> switch [name] [-f]` | 切换 profile |
 
 - `create` 省略名称时交互输入新名称; 使用 `--copy-from profile` 或 `-c profile` 指定来源, 否则在默认模板和已有 profile 间模糊选择.
 - `adopt` 支持普通文件和外部软链接; 省略名称时交互输入新名称.
-- `edit`, `switch`, `where` 省略名称时进入模糊搜索选择. `rename` 可以同时传入旧名称和新名称, 或不传名称进入交互流程.
+- `edit`, `switch`, `where` 省略名称时进入模糊搜索选择, 但 `edit -a` 除外. `rename` 可以同时传入旧名称和新名称, 或不传名称进入交互流程.
+- `edit -a` 或 `edit --active` 直接编辑当前激活的 profile; 没有激活的 profile 时报错. 同时传入名称时, 先检查该 profile 是否存在, 再检查激活状态; 名称与当前激活项相同则警告并继续编辑, 不同则报错.
 - `switch -f` 允许替换目标路径上未托管的文件或外部软链接; 如需保留现有配置, 先使用 `adopt` 导入.
 
 ## 编辑器与资源
@@ -44,6 +45,7 @@
 
 ```bash
 cprof codex edit work --filename auth
+cprof codex edit -a --filename auth
 cprof codex edit work --editor code --editor-arg --wait
 ```
 

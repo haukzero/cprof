@@ -3,6 +3,18 @@ use std::path::PathBuf;
 /// Active configuration, managed links, and adoption failures.
 #[derive(Debug, thiserror::Error)]
 pub enum ActivationError {
+    #[error("No active profile for target '{0}'")]
+    NoActiveProfile(String),
+
+    #[error(
+        "Profile '{requested}' is not the active profile for target '{target}' (active: '{active}'); omit --active to edit it"
+    )]
+    ProfileMismatch {
+        target: String,
+        requested: String,
+        active: String,
+    },
+
     #[error("Active path '{0}' is not managed by cprof; use --force to replace it")]
     UnmanagedPath(String),
 
