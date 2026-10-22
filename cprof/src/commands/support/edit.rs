@@ -5,7 +5,7 @@ use crate::profile::storage;
 use crate::targets::{ResourceSpec, TargetSpec, external};
 use crate::ui::editor::EditSession;
 
-use super::write::{self, WriteSession};
+use super::mutation::{self, MutationSession};
 
 const DEFAULT_TEMPLATE: &[u8] = br#"# Example for extra targets
 # [[example.resources]]
@@ -26,7 +26,7 @@ pub(crate) fn profile(
     filename: Option<&str>,
     editor: EditorOptions,
 ) -> Result<bool> {
-    write::target(target, || {
+    mutation::target(target, || {
         let resources: Vec<&ResourceSpec> = match filename {
             Some(filename) => vec![target.resource(filename)?],
             None => target.resources.iter().collect(),
@@ -47,7 +47,7 @@ pub(crate) fn profile(
 }
 
 pub(crate) fn extra(editor: EditorOptions) -> Result<()> {
-    WriteSession::configuration()?.run(|| {
+    MutationSession::configuration()?.run(|| {
         let path = config::extra_target_file()?;
         let mut session = EditSession::new(editor.editor, editor.editor_args)?;
         session.edit_or_create(&path, DEFAULT_TEMPLATE, |bytes| {

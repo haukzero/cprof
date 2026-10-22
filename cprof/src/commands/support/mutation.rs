@@ -1,4 +1,4 @@
-//! Command write boundaries. Only this module maps business scopes to file locks.
+//! Command mutation boundaries. Only this module maps business scopes to file locks.
 //!
 //! Hold a session from precondition checks through commit or recovery. `run`
 //! consumes it, so an elevation retry starts after every lock has been released.
@@ -11,14 +11,14 @@ use crate::filesystem::WriteLocks;
 use crate::targets::TargetSpec;
 
 pub(crate) fn target<T>(target: &TargetSpec, operation: impl FnOnce() -> Result<T>) -> Result<T> {
-    WriteSession::targets([target.id.as_str()])?.run(operation)
+    MutationSession::targets([target.id.as_str()])?.run(operation)
 }
 
-pub(crate) struct WriteSession {
+pub(crate) struct MutationSession {
     locks: WriteLocks,
 }
 
-impl WriteSession {
+impl MutationSession {
     pub(crate) fn targets<'a>(ids: impl IntoIterator<Item = &'a str>) -> Result<Self> {
         Ok(Self {
             locks: WriteLocks::acquire(target_scopes(ids)?)?,
@@ -59,7 +59,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let scope = directory.path().join("target");
         for fail in [false, true] {
-            let session = WriteSession {
+            let session = MutationSession {
                 locks: WriteLocks::acquire([scope.clone()]).unwrap(),
             };
             let result = session.run(|| {

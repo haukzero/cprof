@@ -6,7 +6,7 @@ use crate::package::unpack::{
 };
 use crate::targets::TargetRepository;
 
-use super::write::WriteSession;
+use super::mutation::MutationSession;
 
 mod interaction;
 mod render;
@@ -15,11 +15,11 @@ mod replay;
 use interaction::{Interactive, Preview};
 pub(crate) use render::{render_preview, render_restore};
 
-/// Own the write session until commit finishes, including transaction recovery.
+/// Own the mutation session until commit finishes, including transaction recovery.
 pub(crate) struct PreparedUnpack {
     plan: UnpackPlan,
     interaction: Interactive,
-    write: WriteSession,
+    mutation: MutationSession,
 }
 
 pub(crate) fn prepare(
@@ -28,17 +28,17 @@ pub(crate) fn prepare(
     force: bool,
     mirror: bool,
 ) -> Result<PreparedUnpack> {
-    let mut write = WriteSession::configuration()?;
+    let mut mutation = MutationSession::configuration()?;
     let targets = TargetRepository::load()?;
     let source = UnpackSource::read(&targets, path, target_id, UnpackMode::from(mirror))?;
-    write.include_targets(source.target_ids(&targets))?;
+    mutation.include_targets(source.target_ids(&targets))?;
     let mut interaction = Interactive::new(force)?;
     let plan = source.prepare(&targets, &mut interaction)?;
     interaction.finish(&plan)?;
     Ok(PreparedUnpack {
         plan,
         interaction,
-        write,
+        mutation,
     })
 }
 
@@ -67,6 +67,6 @@ impl PreparedUnpack {
     }
 
     pub(crate) fn commit(self) -> Result<()> {
-        self.write.run(|| self.plan.commit())
+        self.mutation.run(|| self.plan.commit())
     }
 }

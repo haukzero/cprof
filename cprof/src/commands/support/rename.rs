@@ -4,10 +4,10 @@ use crate::filesystem::transaction::PathTransaction;
 use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 
-use super::write;
+use super::mutation;
 
 pub(crate) fn run(target: &TargetSpec, old_name: &str, new_name: &str) -> Result<()> {
-    write::target(target, || {
+    mutation::target(target, || {
         storage::require_exists(target, old_name)?;
         let new_dir = config::profile_dir(target, new_name)?;
         if new_dir.exists() {

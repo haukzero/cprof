@@ -4,14 +4,14 @@ use crate::profile::{activation, storage};
 use crate::targets::TargetSpec;
 use crate::ui::editor::EditSession;
 
-use super::write::WriteSession;
+use super::mutation::MutationSession;
 
-/// Keep creation, initial editing, and activation in the same write session.
+/// Keep creation, initial editing, and activation in the same mutation session.
 /// Only activation is retried with elevation, so preparation is a separate step.
 pub(crate) struct CreatedProfile<'a> {
     target: &'a TargetSpec,
     name: &'a str,
-    write: WriteSession,
+    mutation: MutationSession,
 }
 
 pub(crate) fn prepare<'a>(
@@ -20,7 +20,7 @@ pub(crate) fn prepare<'a>(
     copy_from: Option<&str>,
     editor: EditorOptions,
 ) -> Result<CreatedProfile<'a>> {
-    let write = WriteSession::targets([target.id.as_str()])?;
+    let mutation = MutationSession::targets([target.id.as_str()])?;
     let mut session = EditSession::new(editor.editor, editor.editor_args)?;
     let recovering = storage::has_edit_drafts(target, name)?;
     if !recovering {
@@ -42,13 +42,13 @@ pub(crate) fn prepare<'a>(
     Ok(CreatedProfile {
         target,
         name,
-        write,
+        mutation,
     })
 }
 
 impl CreatedProfile<'_> {
     pub(crate) fn activate(self) -> Result<bool> {
-        self.write.run(|| {
+        self.mutation.run(|| {
             if !matches!(
                 activation::status(self.target)?,
                 activation::Status::NoFiles

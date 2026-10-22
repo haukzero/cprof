@@ -1,4 +1,4 @@
-use crate::commands::support::{selection::Scope, write::WriteSession};
+use crate::commands::support::{mutation::MutationSession, selection::Scope};
 use crate::error::Result;
 use crate::filesystem::transaction::PathTransaction;
 use crate::profile::{activation, storage};
@@ -16,7 +16,7 @@ pub(crate) fn run(
     ascii: bool,
 ) -> Result<()> {
     let selected = selection::resolve(targets, scope, names, TreeStyle::resolve(ascii))?;
-    WriteSession::targets(
+    MutationSession::targets(
         selected
             .iter()
             .map(|selection| selection.target.id.as_str()),

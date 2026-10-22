@@ -6,7 +6,7 @@ use crate::profile::{activation, storage};
 use crate::targets::{TargetRepository, TargetSpec};
 use crate::ui::{prompt, style};
 
-use super::write::WriteSession;
+use super::mutation::MutationSession;
 
 pub(crate) fn run(
     targets: &TargetRepository,
@@ -16,7 +16,7 @@ pub(crate) fn run(
 ) -> Result<()> {
     if extra_toml {
         // Resolve definitions under their lock before deleting the configuration.
-        WriteSession::configuration()?
+        MutationSession::configuration()?
             .run(|| clean_profiles(&TargetRepository::load()?, scope, force, extra_toml))
     } else {
         clean_profiles(targets, scope, force, extra_toml)
@@ -30,7 +30,7 @@ fn clean_profiles(
     extra_toml: bool,
 ) -> Result<()> {
     let targets = scope.targets(targets)?;
-    WriteSession::targets(targets.iter().map(|target| target.id.as_str()))?.run(|| {
+    MutationSession::targets(targets.iter().map(|target| target.id.as_str()))?.run(|| {
         let mut cleaned = Vec::new();
         let mut extra_config = None;
         PathTransaction::prepare(|transaction| {

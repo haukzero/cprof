@@ -2,7 +2,7 @@
 //!
 //! Transaction orchestration lives in [`transaction`], while flushing and
 //! symlink creation are isolated in [`platform`].
-//! Command write sessions coordinate concurrency; path transactions handle
+//! Command mutation sessions coordinate concurrency; path transactions handle
 //! staging, commit, and recovery without acquiring scope locks themselves.
 
 use std::ffi::OsString;
