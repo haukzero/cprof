@@ -9,6 +9,7 @@ pub mod pack;
 pub mod remove;
 pub mod rename;
 pub mod switch;
+pub mod unlink;
 pub mod unpack;
 pub mod where_;
 pub mod which;

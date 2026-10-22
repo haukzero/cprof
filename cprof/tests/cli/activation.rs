@@ -18,13 +18,76 @@ fn codex_reports_partial_and_mixed_links() {
     let partial = home.run(&["codex", "which"]);
     assert!(partial.status.success());
     assert!(String::from_utf8_lossy(&partial.stderr).contains("partially linked"));
+    for args in [&["codex", "unlink"][..], &["codex", "unlink", "--force"]] {
+        home.fails(args, "No active profile for target 'codex'");
+    }
+    assert_eq!(
+        fs::read_link(home.path.join(".codex/config.toml")).unwrap(),
+        first.join("config.toml")
+    );
+    assert!(!auth.is_symlink());
     home.succeeds(&["codex", "switch", "second"]);
     fs::remove_file(&auth).unwrap();
     symlink(first.join("auth.json"), &auth).unwrap();
     let mixed = home.run(&["codex", "which"]);
     assert!(mixed.status.success());
     assert!(String::from_utf8_lossy(&mixed.stderr).contains("Different resources"));
+    home.fails(
+        &["codex", "unlink", "--force"],
+        "No active profile for target 'codex'",
+    );
+    assert_eq!(fs::read_link(&auth).unwrap(), first.join("auth.json"));
+    assert_eq!(
+        fs::read_link(home.path.join(".codex/config.toml")).unwrap(),
+        home.path.join(".cprof/profiles/codex/second/config.toml")
+    );
     assert!(home.path.join(".codex/config.toml").is_symlink());
+}
+
+#[test]
+fn unlink_rejects_missing_and_unmanaged_configuration() {
+    let empty = TestHome::new();
+    let unmanaged = unmanaged_codex();
+    for home in [&empty, &unmanaged] {
+        for args in [&["codex", "unlink"][..], &["codex", "unlink", "-f"]] {
+            home.fails(args, "No active profile for target 'codex'");
+        }
+    }
+    assert!(!empty.path.join(".codex").exists());
+    assert_originals(&unmanaged);
+}
+
+#[cprof_macros::windows_elevation]
+#[test]
+fn unlink_requires_confirmation_and_keeps_profile_files() {
+    let home = TestHome::new();
+    let profile = home.codex_profile("work");
+    fs::write(profile.join("unlisted"), "kept").unwrap();
+    home.succeeds(&["codex", "switch", "work"]);
+
+    home.fails(&["codex", "unlink"], "interactive terminal");
+    for filename in ["config.toml", "auth.json"] {
+        assert_eq!(
+            fs::read_link(home.path.join(".codex").join(filename)).unwrap(),
+            profile.join(filename)
+        );
+    }
+
+    let output = home.succeeds(&["codex", "unlink", "--force"]);
+    assert!(output.contains("Done! Unlinked profile 'work'"), "{output}");
+    assert_eq!(fs::read_dir(home.path.join(".codex")).unwrap().count(), 0);
+    assert_eq!(
+        fs::read_to_string(profile.join("config.toml")).unwrap(),
+        CONFIG
+    );
+    assert_eq!(fs::read_to_string(profile.join("auth.json")).unwrap(), AUTH);
+    assert_eq!(
+        fs::read_to_string(profile.join("unlisted")).unwrap(),
+        "kept"
+    );
+    assert!(home.succeeds(&["codex", "which"]).is_empty());
+    home.succeeds(&["codex", "switch", "work"]);
+    assert_eq!(home.succeeds(&["codex", "which"]), "work\n");
 }
 
 #[test]

@@ -26,12 +26,14 @@
 | `cprof <target> edit [name] [-a] [--filename key]` | 编辑 profile, `-a` 编辑当前激活的 profile |
 | `cprof <target> rename [old_name] [new_name]` | 重命名 profile |
 | `cprof <target> switch [name] [-f]` | 切换 profile |
+| `cprof <target> unlink [-f]` | 移除当前激活 profile 的软链接, 保留 profile 文件 |
 
 - `create` 省略名称时交互输入新名称; 使用 `--copy-from profile` 或 `-c profile` 指定来源, 否则在默认模板和已有 profile 间模糊选择.
 - `adopt` 支持普通文件和外部软链接; 省略名称时交互输入新名称.
 - `edit`, `switch`, `where` 省略名称时进入模糊搜索选择, 但 `edit -a` 除外. `rename` 可以同时传入旧名称和新名称, 或不传名称进入交互流程.
 - `edit -a` 或 `edit --active` 直接编辑当前激活的 profile; 没有激活的 profile 时报错. 同时传入名称时, 先检查该 profile 是否存在, 再检查激活状态; 名称与当前激活项相同则警告并继续编辑, 不同则报错.
 - `switch -f` 允许替换目标路径上未托管的文件或外部软链接; 如需保留现有配置, 先使用 `adopt` 导入.
+- `unlink` 仅在当前 target 有完整激活的 profile 时可用; 无配置、链接不完整、指向不同 profile 或存在未托管配置时均报错. 默认需要确认, `--force` (`-f`) 跳过确认, 不会绕过激活状态检查; 之后可用 `switch` 重新激活.
 
 ## 编辑器与资源
 
@@ -39,7 +41,7 @@
 
 编辑器按 `--editor`, `CPROF_EDITOR`, `VISUAL`, `EDITOR`, 系统默认值的顺序选择, 环境变量为空或仅包含空白时继续回退. 三个环境变量均支持带引号的"程序 + 参数"配置, 如 `CPROF_EDITOR='code --wait'`. 全部未配置时 Windows 使用 `notepad`, 其他平台使用 `vi`.
 
-同一 target 的修改操作互斥: 编辑器未退出时, 创建、导入、删除、重命名、切换和清理该 target 会提示占用并退出, `--force` 不会绕过锁. 不同 target 可以独立编辑, 查看和 `--dry-run` 仍然可用. `edit-extra` 也会阻止导入或 `clean --extra-toml` 修改外部 target 配置; 操作结束或进程退出后自动释放锁.
+同一 target 的修改操作互斥: 编辑器未退出时, 创建、导入、删除、重命名、切换、取消激活和清理该 target 会提示占用并退出, `--force` 不会绕过锁. 不同 target 可以独立编辑, 查看和 `--dry-run` 仍然可用. `edit-extra` 也会阻止导入或 `clean --extra-toml` 修改外部 target 配置; 操作结束或进程退出后自动释放锁.
 
 `edit` 和 `where` 的 `--filename` 使用资源逻辑名称, Claude 为 `settings`, Codex 为 `config` 或 `auth`:
 

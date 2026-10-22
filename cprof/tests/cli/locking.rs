@@ -123,6 +123,7 @@ fn active_edit_blocks_target_writers_and_preserves_the_draft() {
         &["codex", "create", "new", "-c", "work"],
         &["codex", "adopt", "adopted"],
         &["codex", "switch", "work", "--force"],
+        &["codex", "unlink", "--force"],
         &["codex", "rename", "work", "renamed"],
         &["codex", "remove", "work", "--force"],
         &["codex", "clean", "--force"],

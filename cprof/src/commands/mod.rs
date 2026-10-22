@@ -79,6 +79,7 @@ fn dispatch_target(
             target::rename::run(&target, old_name, new_name)
         }
         TargetCommand::Switch { name, force } => target::switch::run(&target, name, force),
+        TargetCommand::Unlink { force } => target::unlink::run(&target, force),
         TargetCommand::Clean { force } => target::clean::run(targets, &target, force),
         TargetCommand::Where { name, filename } => target::where_::run(&target, name, filename),
         TargetCommand::Pack(args) => target::pack::run(

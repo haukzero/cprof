@@ -43,7 +43,7 @@ cprof codex switch work
 | 用途 | 文档 |
 |------|------|
 | 查看 target, profile 和存储位置 | [查看配置](docs/commands.md#查看配置) |
-| 创建, 导入, 编辑, 重命名和切换 profile | [管理 profile](docs/commands.md#管理-profile) |
+| 创建, 导入, 编辑, 重命名, 切换和取消激活 profile | [管理 profile](docs/commands.md#管理-profile) |
 | 指定编辑器和资源文件 | [编辑器与资源](docs/commands.md#编辑器与资源) |
 | 删除 profile 或清空配置 | [删除与清理](docs/commands.md#删除与清理) |
 | 选择打包内容, 导入或镜像同步配置 | [打包与解包](docs/commands.md#打包与解包) |

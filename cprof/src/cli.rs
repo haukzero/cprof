@@ -250,6 +250,12 @@ pub enum TargetCommand {
         #[arg(short, long)]
         force: bool,
     },
+    /// Unlink the active profile
+    Unlink {
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Remove all profiles and managed symlinks for this target
     Clean {
         /// Skip confirmation prompt
